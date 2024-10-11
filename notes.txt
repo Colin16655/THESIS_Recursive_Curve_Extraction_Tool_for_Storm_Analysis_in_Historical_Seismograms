@@ -1,0 +1,3 @@
+Comment choisir hyperparams pour local tresholding ?
+Idées de méthode adaptative pour trouver hyperparams optimaux online (+ robuste) ?
+Discuter implémentation classifier "smooth" "complex" "none".
