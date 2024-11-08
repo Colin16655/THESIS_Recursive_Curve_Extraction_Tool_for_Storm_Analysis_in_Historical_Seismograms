@@ -2,3 +2,6 @@
 *.tif
 *.png
 *.JPG
+images/
+output/
+__pycache__/
