@@ -6,3 +6,4 @@ images/
 output/
 __pycache__/
 *.mseed
+*.mseed

@@ -3,9 +3,11 @@ from obspy.clients.fdsn import Client
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
+from sklearn.model_selection import KFold
 from tqdm import tqdm
 import os
 from obspy import read
+import pickle
 
 class SeismogramAnalysis:
     """
@@ -28,10 +30,10 @@ class SeismogramAnalysis:
 
     def __init__(self, network="BE", 
                        station="UCC", 
-                       location="", 
-                       channel="HHZ", 
+                       location="",
+                       channel="HHE", 
                        start_time="2024-01-01T00:06:00", 
-                       end_time="2024-01-04T00:12:00", 
+                       end_time="2024-01-14T00:12:00", 
                        batch_length=1000):
         """
         Initialize the seismogram analysis tool.
@@ -54,12 +56,12 @@ class SeismogramAnalysis:
         self.batch_length = batch_length
         self.signal = None
         self.frequencies = None
-        self.A = None
-        self.B = None
+        self.batch_A = None
+        self.batch_B = None
         self.PDFs = {'A': None, 'B': None}
         self.init = False
 
-    def read_MSEED_batch(self, start_time, end_time, folder="seismogram_curve_extraction\data\mseed_files", mute=False):
+    def read_MSEED_batch(self, start_time, end_time, folder=r"seismogram_curve_extraction\data\mseed_files", mute=False, plot_batch=False):
         """
         Read a batch of waveform data from a local file or an FDSN web service.
 
@@ -84,7 +86,7 @@ class SeismogramAnalysis:
                 print(f"Created folder: {folder}")
         
         # Define the full file path
-        filename = sanitize_filename(f"{self.station}_{start_time}_{end_time}.mseed")
+        filename = sanitize_filename(f"{self.station}_{self.channel}_{start_time}_{end_time}.mseed")
         filepath = os.path.join(folder, filename)
         
         # Check if the file exists
@@ -99,11 +101,16 @@ class SeismogramAnalysis:
                 signal = None
         else:
             # Fetch the data from the server
-            client = Client("ORFEUS")
+            client = Client("IRIS")
             try:
                 if not mute:
                     print(f"Fetching data from server for {start_time} to {end_time}...")
-                signal = client.get_waveforms(self.network, self.station, self.location, self.channel, start_time, end_time)
+                signal = client.get_waveforms(network=self.network, 
+                                              station=self.station, 
+                                              location=self.location,
+                                              channel=self.channel, 
+                                              starttime=start_time, 
+                                              endtime=end_time)
                 # Save the data locally for future use
                 signal.write(filepath, format="MSEED")
                 if not mute:
@@ -111,14 +118,19 @@ class SeismogramAnalysis:
             except Exception as e:
                 print(f"Error fetching data for {start_time} to {end_time}: {e}")
                 signal = None
+
+        # plot the signal
+        if plot_batch:
+            signal.plot()
         
         return signal
     
-    def compute_dft(self, signal):
+    def compute_dft(self, dt, signal, plot=False):
         """
         Compute the DFT of a real signal and calculate A_k and B_k for positive frequencies.
 
         Parameters:
+            dt (float): Sampling rate of the signal.
             signal (array): Input seismogram signal.
 
         Returns:
@@ -127,7 +139,6 @@ class SeismogramAnalysis:
             B (array): Vector of B_k coefficients.
         """
         N = len(signal)
-        sampling_rate = 1  # Assuming the sampling rate is 1 Hz for simplicity
 
         # Perform DFT using numpy's FFT
         X_k = np.fft.rfft(signal)  # Real FFT for efficiency with real input signals
@@ -144,27 +155,104 @@ class SeismogramAnalysis:
         A[0] = Re_X_k[0] / N
 
         # Compute the corresponding frequency axis for positive frequencies
-        self.frequencies = np.fft.rfftfreq(N, d=1/sampling_rate)
+        self.frequencies = np.fft.rfftfreq(N, d=dt)
+
+        if plot:
+            # Plot the DFT results
+            plt.figure(figsize=(12, 6))
+            plt.plot(self.frequencies, A, label="A_k", color="blue")
+            plt.plot(self.frequencies, B, label="B_k", color="red")
+            plt.xlabel("Frequency (Hz)")
+            plt.ylabel("Amplitude")
+            plt.title("Fourier Coefficients (A_k and B_k)")
+            plt.legend(loc="upper right")
+            plt.grid()
+            plt.show()
 
         return self.frequencies, A, B
-
-    def compute_pdf(self, A, B, bandwidth=0.1):
+    
+    def evaluate_bandwidth(self, data, bandwidth, kf):
         """
-        Compute the PDF of A_k and B_k using Kernel Density Estimation (KDE).
-
+        Evaluate a specific bandwidth using cross-validation.
+        
         Parameters:
-            A (array): Vector of A_k coefficients.
-            B (array): Vector of B_k coefficients.
+            data (array): The data to fit the KDE on.
+            bandwidth (float): The bandwidth value to test.
+            kf (KFold): The KFold cross-validation iterator.
+            
+        Returns:
+            float: Average log-likelihood score for the cross-validation.
         """
-        # Store the KDE estimators in the PDFs attribute
-        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(A[i, :][:, np.newaxis]) for i in range(A.shape[0])]
-        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(B[i, :][:, np.newaxis]) for i in range(B.shape[0])]
+        scores = []
+        for train_idx, test_idx in kf.split(data.T):  # We need to split across columns (batches)
+            train_data, test_data = data[:, train_idx], data[:, test_idx]
+
+            # Fit KDE on training data (reshape to 2D)
+            PDFs = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(train_data[k, :][:, np.newaxis]) for k in range(train_data.shape[0])]
+
+            # kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
+            # PDFs = [kde.fit(train_data[i, :][:, np.newaxis]) for i in range(train_data.shape[0])]
+            # kde.fit(train_data.T)  # Fit using the transposed data to have samples in rows
+
+            # Compute log-likelihood on test data
+            log_likelihoods = [PDFs[k].score(test_data[k, :][:, np.newaxis]) for k in range(train_data.shape[0])]
+            scores.append(np.mean(log_likelihoods))
+        
+        return np.mean(scores)  # Average log-likelihood over folds
+
+    def compute_pdf(self, A, B, bandwidth=None):
+        """
+        Compute the PDF of A_k and B_k using Kernel Density Estimation (KDE), assuming that the A_k and B_k are statistically independent.
+        
+        Parameters:
+            A (array): Matrix of A_k coefficients (num_frequencies x num_batches).
+            B (array): Matrix of B_k coefficients (num_frequencies x num_batches).
+            bandwidth (float or None): If None, bandwidth will be selected using 5-folds cross-validation.
+        
+        Returns:
+            dict: PDFs for A_k and B_k coefficients.
+        """
+        if bandwidth is None:
+            # If no bandwidth is provided, perform cross-validation to select the best one
+            bandwidth_range = np.logspace(-2, 1, 10)  # Example range from 0.01 to 10
+            kf = KFold(n_splits=5, shuffle=True, random_state=42)
+            best_bandwidth_A, best_bandwidth_B = None, None
+            best_score_A, best_score_B = -np.inf, -np.inf
+            
+            # Cross-validation for A
+            for bw in bandwidth_range:
+                score_A = self.evaluate_bandwidth(A, bw, kf)
+                print(f"Bandwidth {bw} for A: Log-Likelihood: {score_A}")
+                if score_A > best_score_A:
+                    best_score_A = score_A
+                    best_bandwidth_A = bw
+            
+            # Cross-validation for B
+            for bw in bandwidth_range:
+                score_B = self.evaluate_bandwidth(B, bw, kf)
+                print(f"Bandwidth {bw} for B: Log-Likelihood: {score_B}")
+                if score_B > best_score_B:
+                    best_score_B = score_B
+                    best_bandwidth_B = bw
+            
+            # Set the best bandwidth for both A and B
+            bandwidth = (best_bandwidth_A + best_bandwidth_B) / 2
+            print(f"Best bandwidth for A and B: {bandwidth} (average of {best_bandwidth_A} and {best_bandwidth_B})")
+
+        # Store the KDE estimators in the PDFs attribute using the selected bandwidth
+        print('o')
+        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(A[k, :][:, np.newaxis]) for k in range(A.shape[0])]
+        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(B[k, :][:, np.newaxis]) for k in range(B.shape[0])]
+        print("oo")
         return self.PDFs
 
-    def process_batches(self):
+    def process_batches(self, downsampling_fac=10, bandwidth=None):
         """
         Process the seismogram in batches, compute the DFT for each batch, 
         and update the PDFs of A_k and B_k.
+
+        Parameters: 
+            downsampling_fac (int): Downsampling factor to reduce the time complexity.
         """
         batch_start = self.start_time
         num_batches = int((self.end_time - self.start_time) / self.batch_length)
@@ -178,18 +266,29 @@ class SeismogramAnalysis:
 
         # Extract the signal from the first trace
         signal = batch_signal[0].data
-        
+        dt = batch_signal[0].stats.delta * downsampling_fac
+        # print("dt = ", batch_signal[0].stats.delta) # 0.01 s: 100 Hz
+        # Downsampling
+        signal = signal[::downsampling_fac]
+
         self.batch_A = np.zeros((len(signal)//2+1, num_batches))
         self.batch_B = np.zeros((len(signal)//2+1, num_batches))
 
         # Iterate over the batches
         for i in tqdm(range(num_batches), desc="Processing batches"):    
             # Compute the DFT for the current batch
-            self.frequencies, A, B = self.compute_dft(signal)
+            self.frequencies, A, B = self.compute_dft(dt, signal)
 
             # Append the coefficients to the batch lists
             self.batch_A[:, i] = A
             self.batch_B[:, i] = B
+
+            # Check if reconstruct signal matches the original signal
+            # reconstructed_signal = self.reconstruct_signal(A, B, self.frequencies, np.arange(len(signal)) * dt)
+            # plt.plot(np.arange(len(signal)) * dt, reconstructed_signal, label="Reconstructed signal", color="red")
+            # plt.plot(np.arange(len(signal)) * dt, signal, linestyle='--', label="Original signal", color="blue")
+            # plt.legend()
+            # plt.show()
 
             # Move to the next batch
             batch_start = batch_end
@@ -201,16 +300,27 @@ class SeismogramAnalysis:
                 raise ValueError(f"Error fetching data for the {i}th batch!")
 
             # Extract the signal from the first trace
-            signal = batch_signal[0].data
-        
-        # Downsampling to reduce time complexity
-        dt = int(batch_signal[0].stats.sampling_rate)
-        self.batch_A = self.batch_A[::dt, :]
-        self.batch_B = self.batch_B[::dt, :]
-        self.frequencies = self.frequencies[::dt]
+            signal = batch_signal[0].data# Downsampling
+            signal = signal[::downsampling_fac]
+
+        norm = np.zeros((2, len(self.frequencies)))
+        for k in range(len(self.frequencies)):
+            norm[0, k] = np.linalg.norm(self.batch_A[k, :])
+            norm[1, k] = np.linalg.norm(self.batch_B[k, :])
+        plt.semilogy(self.frequencies, norm[0, :]+(1e-16), label="A_k")
+        plt.semilogy(self.frequencies, norm[1, :]+(1e-16), label="B_k")
+        plt.legend()
+        plt.show()
+
+        plt.hist(self.batch_A[0, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+        plt.show()
+        plt.hist(self.batch_A[10000, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+        plt.show()
+        plt.hist(self.batch_A[-1, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+        plt.show()
 
         # After processing all batches, compute the PDFs for A_k and B_k
-        return self.compute_pdf(np.array(self.batch_A), np.array(self.batch_B))
+        return self.compute_pdf(np.array(self.batch_A), np.array(self.batch_B), bandwidth=bandwidth)
 
     def reconstruct_signal(self, A, B, frequencies, t):
         """
@@ -229,25 +339,69 @@ class SeismogramAnalysis:
         for k in range(len(frequencies)):
             reconstructed_signal += A[k] * np.cos(2 * np.pi * frequencies[k] * t) + B[k] * np.sin(2 * np.pi * frequencies[k] * t)
         return reconstructed_signal
+    
+    def save_analysis(self, filepath):
+        """
+        Save the entire SeismogramAnalysis object to a file.
 
+        Parameters:
+            filepath (str): Path to save the object.
+        """
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        with open(filepath, "wb") as file:
+            pickle.dump(self, file)
+        print(f"Analysis object saved to {filepath}.")
+
+    @staticmethod
+    def load_analysis(filepath):
+        """
+        Load a SeismogramAnalysis object from a file.
+
+        Parameters:
+            filepath (str): Path to load the object from.
+
+        Returns:
+            SeismogramAnalysis: The loaded analysis object.
+        """
+        with open(filepath, "rb") as file:
+            analysis = pickle.load(file)
+        print(f"Analysis object loaded from {filepath}.")
+        return analysis
+    
 
 if __name__ == "__main__": 
-    # Example usage of the SeismogramAnalysis class
-    analysis = SeismogramAnalysis(batch_length=86400)
+    bandwidth = None  # Set the bandwidth for KDE (None for automatic selection) 
 
-    # Process the seismogram in batches and compute the PDFs
-    analysis.process_batches()
+    # Define the file path to save or load the results
+    filepath = r"seismogram_curve_extraction\results\mseed_files_PDFs_{}".format(bandwidth)
+    
+    if os.path.exists(filepath):
+        print(f"File {filepath} exists. Loading precomputed PDFs...")
+
+        analysis = SeismogramAnalysis.load_analysis(filepath)
+    else:
+        print(f"File {filepath} not found. Computing PDFs...")
+
+        analysis = SeismogramAnalysis(batch_length=int(86400/4)) # 86400 for 1 day batch length
+        # Process the seismogram in batches and compute the PDFs
+        analysis.process_batches(bandwidth=bandwidth)
+        
+        # Save the results for future use
+        analysis.save_analysis(filepath)    
 
     # Print the PDFs of A_k and B_k
     print("PDFs of A_k:")
-    print(type(analysis.PDFs['A'][0]))
 
-    log_density = analysis.PDFs['A'][0].score_samples(analysis.frequencies[:, np.newaxis])  # Compute log-density
+    A_k_vals = np.linspace(np.min(analysis.batch_A[0, :]), np.max(analysis.batch_A[0, :]), 10000)
+    log_density = analysis.PDFs['A'][0].score_samples(A_k_vals[:, np.newaxis])  # Compute log-density
     pdf = np.exp(log_density)  # Convert log-density to probability density
 
     # Plot the results
     plt.figure(figsize=(8, 6))
-    plt.plot(analysis.frequencies, pdf, label="KDE PDF", color="blue")
+    print(np.min(analysis.batch_A[0, :]), np.max(analysis.batch_A[0, :]))
+    plt.plot(A_k_vals, pdf, label="KDE PDF", color="blue")
     plt.hist(analysis.batch_A[0, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
     plt.title("Kernel Density Estimation (KDE)")
     plt.xlabel("x")
