@@ -60,6 +60,7 @@ class SeismogramAnalysis:
         self.batch_B = None
         self.PDFs = {'A': None, 'B': None}
         self.init = False
+        self.bandwidth = None
 
     def read_MSEED_batch(self, start_time, end_time, folder=r"seismogram_curve_extraction\data\mseed_files", mute=False, plot_batch=False):
         """
@@ -236,13 +237,33 @@ class SeismogramAnalysis:
                     best_bandwidth_B = bw
             
             # Set the best bandwidth for both A and B
-            bandwidth = (best_bandwidth_A + best_bandwidth_B) / 2
-            print(f"Best bandwidth for A and B: {bandwidth} (average of {best_bandwidth_A} and {best_bandwidth_B})")
+            self.bandwidth = (best_bandwidth_A + best_bandwidth_B) / 2
+            print(f"Best bandwidth for A and B: {self.bandwidth} (average of {best_bandwidth_A} and {best_bandwidth_B})")
+
+        else: self.bandwidth = bandwidth
 
         # Store the KDE estimators in the PDFs attribute using the selected bandwidth
         print('o')
-        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(A[k, :][:, np.newaxis]) for k in range(A.shape[0])]
-        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(B[k, :][:, np.newaxis]) for k in range(B.shape[0])]
+        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(A[k, :][:, np.newaxis]) for k in range(A.shape[0])] # newaxis is used to add a new dimension to the array : N => ((N, 1))
+        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(B[k, :][:, np.newaxis]) for k in range(B.shape[0])]
+
+        # plot a couple of PDFs
+        for k in [-1, len(self.frequencies)//2, len(self.frequencies)-1]:
+            A_k_vals = np.linspace(np.min(A[k, :])*0.9, np.max(A[k, :])*1.1, 10000)
+            log_density = self.PDFs['A'][k].score_samples(A_k_vals[:, np.newaxis])
+            pdf = np.exp(log_density)
+            # normalize pdf
+            pdf /= np.trapz(pdf, A_k_vals)
+
+            fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+            ax.plot(A_k_vals, pdf, label="KDE PDF", color="blue")
+            ax.hist(A[k, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+            fig.suptitle(f"Kernel Density Estimation (KDE) for A_k")
+            ax.set_xlabel("x")
+            ax.set_ylabel("Density")
+            ax.legend()
+            plt.show()
+
         print("oo")
         return self.PDFs
 
@@ -372,7 +393,18 @@ class SeismogramAnalysis:
     
 
 if __name__ == "__main__": 
-    bandwidth = None  # Set the bandwidth for KDE (None for automatic selection) 
+    # Set rcParams to customize tick labels and spines
+    plt.rcParams['xtick.labelsize'] = 11
+    plt.rcParams['ytick.labelsize'] = 11
+    plt.rcParams['axes.labelsize'] = 11
+    plt.rcParams['axes.spines.top'] = False
+    plt.rcParams['axes.spines.right'] = False
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['legend.fontsize'] = 11
+    plt.rcParams['legend.loc'] = 'upper right'
+    plt.rcParams['axes.titlesize'] = 12
+
+    bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     # Define the file path to save or load the results
     filepath = r"seismogram_curve_extraction\results\mseed_files_PDFs_{}".format(bandwidth)
@@ -391,36 +423,58 @@ if __name__ == "__main__":
         # Save the results for future use
         analysis.save_analysis(filepath)    
 
-    # Print the PDFs of A_k and B_k
-    print("PDFs of A_k:")
+    # Plot the PDFs
+    folder = r"seismogram_curve_extraction\results\plot\PDFs"
+    # Ensure the directory exists
+    os.makedirs(folder, exist_ok=True)
+    for k in [0, 1, 50, len(analysis.frequencies)//2, len(analysis.frequencies)-1]:
+        # Plot the PDF for A_k
+        LO = np.min(analysis.batch_A[k, :])
+        if LO < 0: LO *= 1.1
+        else: LO *= 0.9
 
-    A_k_vals = np.linspace(np.min(analysis.batch_A[0, :]), np.max(analysis.batch_A[0, :]), 10000)
-    log_density = analysis.PDFs['A'][0].score_samples(A_k_vals[:, np.newaxis])  # Compute log-density
-    pdf = np.exp(log_density)  # Convert log-density to probability density
+        UP = np.max(analysis.batch_A[k, :])
+        if UP < 0: UP *= 0.9
+        else: UP *= 1.1
 
-    # Plot the results
-    plt.figure(figsize=(8, 6))
-    print(np.min(analysis.batch_A[0, :]), np.max(analysis.batch_A[0, :]))
-    plt.plot(A_k_vals, pdf, label="KDE PDF", color="blue")
-    plt.hist(analysis.batch_A[0, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
-    plt.title("Kernel Density Estimation (KDE)")
-    plt.xlabel("x")
-    plt.ylabel("Density")
-    plt.legend()
-    plt.grid()
-    plt.show()
-    print("PDFs of B_k:")
+        A_k_vals = np.linspace(LO, UP, 10000)
+        log_density = analysis.PDFs['A'][k].score_samples(A_k_vals[:, np.newaxis])
+        pdf = np.exp(log_density)
 
-    # Optionally, visualize the KDE results for A_k and B_k
-    # if analysis.PDFs['A'] is not None and analysis.PDFs['B'] is not None:
-    #     A_values = np.linspace(np.min(np.array(analysis.PDFs['A'].sample(1000))), np.max(np.array(analysis.PDFs['A'].sample(1000))), 1000)
-    #     B_values = np.linspace(np.min(np.array(analysis.PDFs['B'].sample(1000))), np.max(np.array(analysis.PDFs['B'].sample(1000))), 1000)
+        fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+        ax.plot(A_k_vals, pdf, label="KDE PDF", color="blue")
+        ax.hist(analysis.batch_A[k, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+        fig.suptitle(f"$A_{{{k}}}$, $f_{{{k}}} = {analysis.frequencies[k]:.5f}$ Hz")
+        ax.set_xlabel("x")
+        ax.set_ylabel("Density")
+        ax.legend()
+        # plt.show()
+        
+        fig.savefig(folder + f"/A_{k}_bandwidth_{analysis.bandwidth}.pdf", bbox_inches='tight', format='pdf', dpi=300)
 
-    #     plt.figure(figsize=(12, 6))
-    #     plt.plot(A_values, np.exp(analysis.PDFs['A'].score_samples(A_values[:, np.newaxis])), label="PDF of A_k", color="blue")
-    #     plt.plot(B_values, np.exp(analysis.PDFs['B'].score_samples(B_values[:, np.newaxis])), label="PDF of B_k", color="red")
-    #     plt.xlabel("Amplitude")
-    #     plt.ylabel("Probability Density")
-    #     plt.title("PDF of Fourier Coefficients (A_k and B_k)")
-    #     plt.legend()
-    #     plt.show()
+        # Plot the PDF for B_k
+        LO = np.min(analysis.batch_B[k, :])
+        if LO < 0: LO *= 1.1
+        else: LO *= 0.9
+
+        UP = np.max(analysis.batch_B[k, :])
+        if UP < 0: UP *= 0.9
+        else: UP *= 1.1
+
+        B_k_vals = np.linspace(LO, UP, 10000)
+        log_density = analysis.PDFs['B'][k].score_samples(B_k_vals[:, np.newaxis])
+        pdf = np.exp(log_density)
+
+        fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+        ax.plot(B_k_vals, pdf, label="KDE PDF", color="red")
+        ax.hist(analysis.batch_B[k, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
+        fig.suptitle(f"$B_{{{k}}}$, $f_{{{k}}} = {analysis.frequencies[k]:.5f}$ Hz")
+
+        ax.set_xlabel("x")
+        ax.set_ylabel("Density")
+        ax.legend()
+        # plt.show()
+
+        fig.savefig(folder + f"/B_{k}_bandwidth_{analysis.bandwidth}.pdf", bbox_inches='tight', format='pdf', dpi=300)
+
+

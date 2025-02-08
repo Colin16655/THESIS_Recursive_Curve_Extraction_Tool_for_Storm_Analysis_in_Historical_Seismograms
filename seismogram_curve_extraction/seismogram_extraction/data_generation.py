@@ -11,12 +11,12 @@ class SeismogramGT:
     A class representing the ground truth (GT) of a seismogram.
 
     The temporal signal is constructed as:
-        signal = sum(A_k * cos(2 * pi * f_k * t) + B_k * sin(2 * pi * f_k * t))
+        signal = sum(A_k * cos(2 * pi * f_k * t) + B_k * sin(2 * pi * f_k * t)) (1)
 
     Attributes:
-        f: A list of frequencies (Hz) for each signal component.
-        A: A list of amplitudes corresponding to each frequency.
-        B: A list of phase indicators (True for sine, False for cosine).
+        f: list of f_k in (1).
+        A: list of A_k in (1) corresponding to each frequency.
+        B: list of B_k in (1) corresponding to each frequency.
         image: A 2D NumPy array representing the raster image of the seismogram.
         signal: A 1D NumPy array containing the temporal signal values.
         init: A boolean indicating whether the initialization is complete.
@@ -26,8 +26,8 @@ class SeismogramGT:
             - trace_thickness: The thickness of each seismic trace in pixels.
             - num_traces: The number of seismic traces in the image.
             - trace_spacing: The vertical spacing between traces in pixels.
-            - num_components: The number of sine/cosine components used in the signal.
             - noise_level: The amount of noise added to the signal (range 0-1).
+            - overlap_level: The amount of overlap between traces (range 0-1).
     """
     f: np.ndarray = None
     A: np.ndarray = None
