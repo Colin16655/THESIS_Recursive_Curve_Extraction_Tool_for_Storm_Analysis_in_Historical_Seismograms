@@ -9,6 +9,10 @@ import os
 from obspy import read
 import pickle
 
+def sanitize_filename(name):
+            """Sanitize a filename by replacing invalid characters."""
+            return name.replace(":", "-").replace(".", "-").replace(" ", "_")
+
 class SeismogramAnalysis:
     """
     A class for performing seismogram analysis including waveform data retrieval,
@@ -60,6 +64,7 @@ class SeismogramAnalysis:
         self.batch_B = None
         self.PDFs = {'A': None, 'B': None}
         self.init = False
+        self.bandwidth_0 = None
         self.bandwidth = None
 
     def read_MSEED_batch(self, start_time, end_time, folder=r"seismogram_curve_extraction\data\mseed_files", mute=False, plot_batch=False):
@@ -75,11 +80,6 @@ class SeismogramAnalysis:
         Returns:
             Stream: ObsPy Stream object containing the waveform data for the batch.
         """
-
-        def sanitize_filename(name):
-            """Sanitize a filename by replacing invalid characters."""
-            return name.replace(":", "-").replace(".", "-").replace(" ", "_")
-
         # Ensure the folder exists
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -182,26 +182,30 @@ class SeismogramAnalysis:
             kf (KFold): The KFold cross-validation iterator.
             
         Returns:
-            float: Average log-likelihood score for the cross-validation.
+            (float, float): Average log-likelihood score for the cross-validation for A_0 and for A_k, k = 1, ..., N-1.
         """
+        score0 = []
         scores = []
         for train_idx, test_idx in kf.split(data.T):  # We need to split across columns (batches)
             train_data, test_data = data[:, train_idx], data[:, test_idx]
 
             # Fit KDE on training data (reshape to 2D)
-            PDFs = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(train_data[k, :][:, np.newaxis]) for k in range(train_data.shape[0])]
+            PDF0 = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(train_data[0, :][:, np.newaxis])
+            PDFs = [KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(train_data[k, :][:, np.newaxis]) for k in range(1, train_data.shape[0])]
 
             # kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
             # PDFs = [kde.fit(train_data[i, :][:, np.newaxis]) for i in range(train_data.shape[0])]
             # kde.fit(train_data.T)  # Fit using the transposed data to have samples in rows
 
             # Compute log-likelihood on test data
-            log_likelihoods = [PDFs[k].score(test_data[k, :][:, np.newaxis]) for k in range(train_data.shape[0])]
+            log_likelihood0 = PDF0.score(test_data[0, :][:, np.newaxis])
+            log_likelihoods = [PDFs[k].score(test_data[k, :][:, np.newaxis]) for k in range(1, train_data.shape[0])]
+            score0.append(log_likelihood0)
             scores.append(np.mean(log_likelihoods))
         
-        return np.mean(scores)  # Average log-likelihood over folds
+        return np.mean(score0), np.mean(scores)  # Averages log-likelihood over folds
 
-    def compute_pdf(self, A, B, bandwidth=None):
+    def compute_pdf(self, A, B, bandwidth_0=None, bandwidth=None):
         """
         Compute the PDF of A_k and B_k using Kernel Density Estimation (KDE), assuming that the A_k and B_k are statistically independent.
         
@@ -217,38 +221,53 @@ class SeismogramAnalysis:
             # If no bandwidth is provided, perform cross-validation to select the best one
             bandwidth_range = np.logspace(-2, 1, 10)  # Example range from 0.01 to 10
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
+            best_bandwidth_A0, best_bandwidth_B0 = None, None
+            best_score_A0, best_score_B0 = -np.inf, -np.inf
             best_bandwidth_A, best_bandwidth_B = None, None
             best_score_A, best_score_B = -np.inf, -np.inf
             
             # Cross-validation for A
             for bw in bandwidth_range:
-                score_A = self.evaluate_bandwidth(A, bw, kf)
+                score_A0, score_A = self.evaluate_bandwidth(A, bw, kf)
+                print(f"Bandwidth {bw} for A_0: Log-Likelihood: {score_A0}")
                 print(f"Bandwidth {bw} for A: Log-Likelihood: {score_A}")
                 if score_A > best_score_A:
                     best_score_A = score_A
                     best_bandwidth_A = bw
+                if score_A0 > best_score_A0:
+                    best_score_A0 = score_A0
+                    best_bandwidth_A0 = bw
             
             # Cross-validation for B
             for bw in bandwidth_range:
-                score_B = self.evaluate_bandwidth(B, bw, kf)
+                score_B0, score_B = self.evaluate_bandwidth(B, bw, kf)
+                print(f"Bandwidth {bw} for B_0: Log-Likelihood: {score_B0}")
                 print(f"Bandwidth {bw} for B: Log-Likelihood: {score_B}")
                 if score_B > best_score_B:
                     best_score_B = score_B
                     best_bandwidth_B = bw
-            
+                if score_B0 > best_score_B0:
+                    best_score_B0 = score_B0
+                    best_bandwidth_B0 = bw
+
             # Set the best bandwidth for both A and B
+            self.bandwidth_0 = (best_bandwidth_A0 + best_bandwidth_B0) / 2
             self.bandwidth = (best_bandwidth_A + best_bandwidth_B) / 2
             print(f"Best bandwidth for A and B: {self.bandwidth} (average of {best_bandwidth_A} and {best_bandwidth_B})")
 
-        else: self.bandwidth = bandwidth
+        else:
+            self.bandwidth_0 = bandwidth_0 
+            self.bandwidth = bandwidth
 
         # Store the KDE estimators in the PDFs attribute using the selected bandwidth
         print('o')
-        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(A[k, :][:, np.newaxis]) for k in range(A.shape[0])] # newaxis is used to add a new dimension to the array : N => ((N, 1))
-        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(B[k, :][:, np.newaxis]) for k in range(B.shape[0])]
+        self.PDFs['A'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth_0).fit(A[0, :][:, np.newaxis])]
+        self.PDFs['A'].extend([KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(A[k, :][:, np.newaxis]) for k in range(1, A.shape[0])]) # newaxis is used to add a new dimension to the array : N => ((N, 1))
+        self.PDFs['B'] = [KernelDensity(kernel='gaussian', bandwidth=self.bandwidth_0).fit(B[0, :][:, np.newaxis])]
+        self.PDFs['B'].extend([KernelDensity(kernel='gaussian', bandwidth=self.bandwidth).fit(B[k, :][:, np.newaxis]) for k in range(1 ,B.shape[0])])
 
         # plot a couple of PDFs
-        for k in [-1, len(self.frequencies)//2, len(self.frequencies)-1]:
+        for k in [0, len(self.frequencies)//2, len(self.frequencies)-1]:
             A_k_vals = np.linspace(np.min(A[k, :])*0.9, np.max(A[k, :])*1.1, 10000)
             log_density = self.PDFs['A'][k].score_samples(A_k_vals[:, np.newaxis])
             pdf = np.exp(log_density)
@@ -267,7 +286,7 @@ class SeismogramAnalysis:
         print("oo")
         return self.PDFs
 
-    def process_batches(self, downsampling_fac=10, bandwidth=None):
+    def process_batches(self, downsampling_fac=10, bandwidth_0=None, bandwidth=None):
         """
         Process the seismogram in batches, compute the DFT for each batch, 
         and update the PDFs of A_k and B_k.
@@ -341,25 +360,37 @@ class SeismogramAnalysis:
         plt.show()
 
         # After processing all batches, compute the PDFs for A_k and B_k
-        return self.compute_pdf(np.array(self.batch_A), np.array(self.batch_B), bandwidth=bandwidth)
+        return self.compute_pdf(np.array(self.batch_A), np.array(self.batch_B), bandwidth_0=bandwidth_0, bandwidth=bandwidth)
 
-    def reconstruct_signal(self, A, B, frequencies, t):
+    def reconstruct_signal(self, A, B, frequencies, t, n_samples=1):
         """
         Reconstruct the signal from A_k and B_k using the Fourier series.
 
         Parameters:
-            A (array): Vector of A_k coefficients.
-            B (array): Vector of B_k coefficients.
-            frequencies (array): Frequency values.
+            A (array): Matrix of A_k coefficients with shape (N, n_samples).
+            B (array): Matrix of B_k coefficients with shape (N, n_samples).
+            frequencies (array): Matrix of frequency values with shape (N, n_samples).
             t (array): Time values for reconstruction.
+            n_samples (int): Number of samples.
 
         Returns:
-            reconstructed_signal (array): Reconstructed signal.
+            reconstructed_signal (array): Reconstructed signal with shape (n_samples, len(t)).
         """
-        reconstructed_signal = np.zeros_like(t)
-        for k in range(len(frequencies)):
-            reconstructed_signal += A[k] * np.cos(2 * np.pi * frequencies[k] * t) + B[k] * np.sin(2 * np.pi * frequencies[k] * t)
-        return reconstructed_signal
+        if n_samples == 1:
+            reconstructed_signal = np.zeros_like(t)
+            for k in range(len(frequencies)):
+                reconstructed_signal += A[k] * np.cos(2 * np.pi * frequencies[k] * t) + B[k] * np.sin(2 * np.pi * frequencies[k] * t)
+        
+        else:
+            # Ensure the output has shape (n_samples, len(t))
+            reconstructed_signal = np.zeros((n_samples, len(t)))
+            
+            for k in tqdm(range(A.shape[0]), desc="Reconstructing signal"):
+                reconstructed_signal += (A[k, :, np.newaxis] * np.cos(2 * np.pi * frequencies[k, np.newaxis] * t) +
+                                        B[k, :, np.newaxis] * np.sin(2 * np.pi * frequencies[k, np.newaxis] * t))
+
+        return reconstructed_signal  # Shape: (n_samples, len(t)) or (len(t),) if n_samples=1
+
     
     def save_analysis(self, filepath):
         """
@@ -403,11 +434,26 @@ if __name__ == "__main__":
     plt.rcParams['legend.fontsize'] = 11
     plt.rcParams['legend.loc'] = 'upper right'
     plt.rcParams['axes.titlesize'] = 12
-
+    network="BE", 
+    station="UCC", 
+    location="",
+    channel="HHE", 
+    start_time="2024-01-01T00:06:00", 
+    end_time="2024-01-14T00:12:00", 
+    batch_length=1000
+    bandwidth_0 = 1
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     # Define the file path to save or load the results
-    filepath = r"seismogram_curve_extraction\results\mseed_files_PDFs_{}".format(bandwidth)
+    filepath = sanitize_filename(r"seismogram_curve_extraction\results\{}_{}_{}_{}_{}_{}_{}_{}_{}\mseed_files_PDFs".format(network, 
+                                                                                                      station, 
+                                                                                                      location, 
+                                                                                                      channel, 
+                                                                                                      start_time, 
+                                                                                                      end_time, 
+                                                                                                      batch_length, 
+                                                                                                      bandwidth_0,
+                                                                                                      bandwidth))
     
     if os.path.exists(filepath):
         print(f"File {filepath} exists. Loading precomputed PDFs...")
@@ -418,7 +464,7 @@ if __name__ == "__main__":
 
         analysis = SeismogramAnalysis(batch_length=int(86400/4)) # 86400 for 1 day batch length
         # Process the seismogram in batches and compute the PDFs
-        analysis.process_batches(bandwidth=bandwidth)
+        analysis.process_batches(bandwidth_0=bandwidth_0, bandwidth=bandwidth)
         
         # Save the results for future use
         analysis.save_analysis(filepath)    
