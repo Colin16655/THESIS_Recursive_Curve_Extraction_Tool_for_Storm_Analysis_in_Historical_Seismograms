@@ -10,8 +10,11 @@ from obspy import read
 import pickle
 
 def sanitize_filename(name):
-            """Sanitize a filename by replacing invalid characters."""
-            return name.replace(":", "-").replace(".", "-").replace(" ", "_")
+    """
+    Sanitize a filename by replacing invalid characters.
+    """
+
+    return name.replace(":", "-").replace(".", "-").replace(" ", "_").replace("(", "").replace(")", "").replace("'", '').replace(",", "")
 
 class SeismogramAnalysis:
     """
@@ -168,7 +171,7 @@ class SeismogramAnalysis:
             plt.title("Fourier Coefficients (A_k and B_k)")
             plt.legend(loc="upper right")
             plt.grid()
-            plt.show()
+            # plt.show()
 
         return self.frequencies, A, B
     
@@ -281,7 +284,7 @@ class SeismogramAnalysis:
             ax.set_xlabel("x")
             ax.set_ylabel("Density")
             ax.legend()
-            plt.show()
+            # plt.show()
 
         print("oo")
         return self.PDFs
@@ -350,14 +353,14 @@ class SeismogramAnalysis:
         plt.semilogy(self.frequencies, norm[0, :]+(1e-16), label="A_k")
         plt.semilogy(self.frequencies, norm[1, :]+(1e-16), label="B_k")
         plt.legend()
-        plt.show()
+        # plt.show()
 
         plt.hist(self.batch_A[0, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
-        plt.show()
+        # plt.show()
         plt.hist(self.batch_A[10000, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
-        plt.show()
+        # plt.show()
         plt.hist(self.batch_A[-1, :], bins=30, density=True, alpha=0.5, color="gray", label="Histogram")
-        plt.show()
+        # plt.show()
 
         # After processing all batches, compute the PDFs for A_k and B_k
         return self.compute_pdf(np.array(self.batch_A), np.array(self.batch_B), bandwidth_0=bandwidth_0, bandwidth=bandwidth)
@@ -453,7 +456,7 @@ if __name__ == "__main__":
                                                                                                       end_time, 
                                                                                                       batch_length, 
                                                                                                       bandwidth_0,
-                                                                                                      bandwidth))
+                                                                                                      bandwidth)) + ".pkl"
     
     if os.path.exists(filepath):
         print(f"File {filepath} exists. Loading precomputed PDFs...")

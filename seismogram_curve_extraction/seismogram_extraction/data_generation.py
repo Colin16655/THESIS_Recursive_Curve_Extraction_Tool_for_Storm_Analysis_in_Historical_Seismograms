@@ -4,7 +4,8 @@ from typing import Tuple, List, Dict
 import json
 import os
 from dataclasses import dataclass
-from stat_analysis import SeismogramAnalysis, sanitize_filename
+from seismogram_extraction import stat_analysis
+from seismogram_extraction.stat_analysis import SeismogramAnalysis, sanitize_filename
 import cv2
 import pickle
 
@@ -80,7 +81,7 @@ class SeismogramGenerator:
         self.seismo_gt = SeismogramGT()
 
         # Define the file path to save or load the results
-        filepath = sanitize_filename(r"seismogram_curve_extraction\results\{}_{}_{}_{}_{}_{}_{}_{}_{}\mseed_files_PDFs".format(network, 
+        filepath = sanitize_filename(r"seismogram_curve_extraction\results\{}_{}_{}_{}_{}_{}_{}_{}_{}\stat_analysis".format(network, 
                                                                                                         station, 
                                                                                                         location, 
                                                                                                         channel, 
@@ -88,14 +89,14 @@ class SeismogramGenerator:
                                                                                                         end_time, 
                                                                                                         batch_length, 
                                                                                                         bandwidth_0,
-                                                                                                        bandwidth))
+                                                                                                        bandwidth)) + ".pkl"
         
         if os.path.exists(filepath):
-            print(f"File {filepath} exists. Loading precomputed PDFs...")
+            print(f"\nFile {filepath} exists. Loading precomputed PDFs...")
 
             self.analysis = SeismogramAnalysis.load_analysis(filepath)
         else:
-            print(f"File {filepath} not found. Computing PDFs...")
+            print(f"\nFile {filepath} not found. Computing PDFs...")
 
             self.analysis = SeismogramAnalysis(network=network, 
                                           station=station, 
@@ -110,7 +111,7 @@ class SeismogramGenerator:
             # Save the results for future use
             self.analysis.save_analysis(filepath)    
 
-            print(f"PDFs computed and saved to {filepath}")
+            print(f"\nPDFs computed and saved to {filepath}")
 
     def resample_signal(self, dt, T, seed=42):
         """Resample the signal in the Fourier domain from the PDFs of A_k and B_k.
@@ -127,7 +128,7 @@ class SeismogramGenerator:
         n_samples = self.num_traces
 
         # Set the random seed
-        np.random.seed(seed)
+        # np.random.seed(seed)
 
         # Generate the frequencies f_k
         self.seismo_gt.f = self.analysis.frequencies
@@ -142,6 +143,36 @@ class SeismogramGenerator:
                                                               self.seismo_gt.f, 
                                                               self.seismo_gt.t, 
                                                               n_samples)
+
+        return self.seismo_gt.signal
+
+
+    def resample_signal_sines(self, dt, T, seed=42):
+        """Resample the signal in the Fourier domain from the PDFs of A_k and B_k.
+
+        Args:
+            dt: Time step of the signal
+            T: length of the signal, len(signal) = T
+            seed: Random seed for reproducibility
+
+        Returns:
+            np.ndarray: The resampled signal in the time domain.
+        """
+        # Number of samples
+        n_samples = self.num_traces
+
+        # Set the random seed
+        # np.random.seed(seed)
+
+        # Generate the frequencies f_k
+        self.seismo_gt.f = self.analysis.frequencies
+        # Generate the A_k and B_k coefficients
+
+        # Time vector
+        self.seismo_gt.signal = [np.sin(np.linspace(0, 10 * np.pi, 1000)), 
+                                 np.cos(np.linspace(0, 10 * np.pi, 1000)),
+                                 np.sin(np.linspace(0, 15 * np.pi, 1000) + 1)]  # Simulated sine and cosine waves
+
 
         return self.seismo_gt.signal
     
@@ -174,7 +205,6 @@ class SeismogramGenerator:
         Returns:
             np.ndarray: A 2D array representing the generated raster-style seismogram.
         """      
-
         self.seismo_gt.meta['width'] = width 
         self.seismo_gt.meta['height'] = height
         self.seismo_gt.meta['line_thickness'] = max(1, int(line_thickness))
@@ -245,12 +275,11 @@ class SeismogramGenerator:
         # Apply slight blur for authenticity
         final_image = cv2.GaussianBlur(noisy_image, (3, 3), 0)
 
-        print("image type : ", type(final_image))
         self.seismo_gt.image = final_image
         
         return final_image
     
-    def save_analysis(self, filepath):
+    def save_analysis(self, filepath_object, filepath_image=None, filepath_npy=None, save_object=True):
         """
         Save the entire SeismogramGT object to a file.
 
@@ -258,14 +287,24 @@ class SeismogramGenerator:
             filepath (str): Path to save the object.
         """
         # Ensure the directory exists
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        os.makedirs(os.path.dirname(filepath_object), exist_ok=True)
+        os.makedirs(os.path.dirname(filepath_image), exist_ok=True)
         
-        with open(filepath, "wb") as file:
-            pickle.dump(self.seismo_gt, file)
-        print(f"SeismogramGT object saved to {filepath}.")
+        if save_object:
+            with open(filepath_object, "wb") as file:
+                pickle.dump(self.seismo_gt, file)
+            print(f"\nSeismogramGT object saved to {filepath_object}.")
 
-        # save the image in pdf format, dpi=300
-        plt.imsave(filepath + ".pdf", self.seismo_gt.image, format='pdf', dpi=300)
+        if filepath_image is not None:
+            # save the image in pdf format
+            if self.seismo_gt.meta['color_mode'] == 'bw':
+                plt.imsave(filepath_image, self.seismo_gt.image, format='pdf', dpi=300, cmap='gray')
+            else:
+                plt.imsave(filepath_image, self.seismo_gt.image, format='pdf', dpi=300)
+
+        if filepath_npy is not None:
+            # save the image in npy format
+            np.save(filepath_npy, self.seismo_gt.signal)
 
     @staticmethod
     def load_analysis(filepath):
@@ -280,14 +319,14 @@ class SeismogramGenerator:
         """
         with open(filepath, "rb") as file:
             seismo_gt = pickle.load(file)
-        print(f"SeismogramGT object loaded from {filepath}.")
+        print(f"\nSeismogramGT object loaded from {filepath}.")
         return seismo_gt
     
 
 # Example usage
 if __name__ == "__main__":
     # Set the random seed once at the start
-    np.random.seed(42)
+    # np.random.seed(42)
 
     plt.rcParams['xtick.labelsize'] = 11
     plt.rcParams['ytick.labelsize'] = 11
@@ -312,16 +351,17 @@ if __name__ == "__main__":
     r_margin = 50
     t_margin = 50
     b_margin = 50
-    color_mode = 'rgb'
+    color_mode = 'bw'
 
     dt = 0.1
     T = 86400*0.01
 
     for i, overlap in enumerate([0.0, 0.5, 0.6]):  # Different overlap levels
-        overlap_percentage = 'vary'
+        print(f"\n\nOverlap percentage: {overlap}")
+        overlap_percentage = overlap
 
         # Define the file path to save or load the results
-        filepath = sanitize_filename(r"seismogram_curve_extraction\results\{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}\mseed_files_PDFs".format(network, 
+        filepath = sanitize_filename(r"seismogram_curve_extraction\results\s{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}\seismo_gt".format(network, 
                                                                                                       station, 
                                                                                                       location, 
                                                                                                       channel, 
@@ -337,22 +377,41 @@ if __name__ == "__main__":
                                                                                                       overlap_percentage,
                                                                                                       color_mode,
                                                                                                       dt,
-                                                                                                      T))
+                                                                                                      T)) + ".pkl"
+        
+        filepath_image = sanitize_filename(r"seismogram_curve_extraction\results\s{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}\raster_image".format(network, 
+                                                                                                      station, 
+                                                                                                      location, 
+                                                                                                      channel, 
+                                                                                                      start_time, 
+                                                                                                      end_time, 
+                                                                                                      batch_length, 
+                                                                                                      bandwidth_0,
+                                                                                                      bandwidth,
+                                                                                                      l_margin,
+                                                                                                      r_margin,
+                                                                                                      t_margin,
+                                                                                                      b_margin,
+                                                                                                      overlap_percentage,
+                                                                                                      color_mode,
+                                                                                                      dt,
+                                                                                                      T)) + ".pdf"
     
         if os.path.exists(filepath):
-            print(f"File {filepath} exists. Loading precomputed PDFs...")
+            print(f"\nFile {filepath} exists. Loading precomputed seismo_gt...")
 
             seismo_gt = SeismogramGenerator.load_analysis(filepath)
         else:
-            print(f"File {filepath} not found. Computing PDFs...")
+            print(f"\nFile {filepath} not found. Computing seismo_gt...")
 
             # Create generator with custom parameters
             generator = SeismogramGenerator()
 
-            signals = generator.resample_signal(dt=dt, T=T)
+            signals = generator.resample_signal_sines(dt=dt, T=T)
 
             seismogram_image = generator.generate_seismogram_raster(l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
-                                                                overlap_percentage=overlap, color_mode=color_mode)
+                                                                overlap_percentage=overlap_percentage, color_mode=color_mode)
         
             # Save the results for future use
-            generator.save_analysis(filepath)    
+            generator.save_analysis(filepath, filepath_image=filepath_image)    
+

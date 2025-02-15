@@ -15,6 +15,7 @@ seismogram_curve_extraction/
 │   ├── __init__.py              # Package initialization
 │   ├── data_generation.py       # Code for generating ground truth data
 │   ├── preprocessing.py         # Code for preprocessing existing seismograms
+│   ├── stat_analysis.py         # Code for preprocessing existing seismograms
 │   ├── filters/                 # Filter implementations
 │   │   ├── kalman_filter.py     # Base Kalman filter implementation
 │   │   ├── extended_kalman.py   # Extended Kalman filter version
