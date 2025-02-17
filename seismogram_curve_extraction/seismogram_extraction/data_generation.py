@@ -298,9 +298,9 @@ class SeismogramGenerator:
         if filepath_image is not None:
             # save the image in pdf format
             if self.seismo_gt.meta['color_mode'] == 'bw':
-                plt.imsave(filepath_image, self.seismo_gt.image, format='pdf', dpi=300, cmap='gray')
+                plt.imsave(filepath_image, self.seismo_gt.image, dpi=300, cmap='gray')
             else:
-                plt.imsave(filepath_image, self.seismo_gt.image, format='pdf', dpi=300)
+                plt.imsave(filepath_image, self.seismo_gt.image, dpi=300)
 
         if filepath_npy is not None:
             # save the image in npy format
@@ -395,7 +395,7 @@ if __name__ == "__main__":
                                                                                                       overlap_percentage,
                                                                                                       color_mode,
                                                                                                       dt,
-                                                                                                      T)) + ".pdf"
+                                                                                                      T)) + ".jpg"
     
         if os.path.exists(filepath):
             print(f"\nFile {filepath} exists. Loading precomputed seismo_gt...")

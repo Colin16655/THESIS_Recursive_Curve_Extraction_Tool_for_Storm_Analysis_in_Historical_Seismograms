@@ -61,7 +61,7 @@ def generate_raster_images(N=1000):
 
         for j in range(4, N):
             filepath = folder_path + f"gt/{j}.npy"
-            filepath_image = folder_path + f"images/{j}.pdf"
+            filepath_image = folder_path + f"images/{j}.jpg"
 
             signals = generator.resample_signal(dt=dt, T=T)
 
