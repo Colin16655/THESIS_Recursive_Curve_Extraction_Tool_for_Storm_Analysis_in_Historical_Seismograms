@@ -299,9 +299,12 @@ class RasterImage:
 # Usage example
 if __name__ == "__main__":
     # File paths of the images
-    source_directories = [r'seismogram_curve_extraction/data/ground_truths/overlap_0_images/',
-                        r'seismogram_curve_extraction/data/ground_truths/overlap_20_images/',
-                        r'seismogram_curve_extraction/data/ground_truths/overlap_50_images/']
+    # source_directories = [r'seismogram_curve_extraction/data/ground_truths/overlap_0_images/',
+    #                     r'seismogram_curve_extraction/data/ground_truths/overlap_20_images/',
+    #                     r'seismogram_curve_extraction/data/ground_truths/overlap_50_images/']
+    source_directories = [r"D:/Courses/Uclouvain/thesis/code/these_Colin/seismogram_curve_extraction/results/sBE_UCC__HHE_2024-01-01T00-06-00_2024-01-14T00-12-00_1000_1_0-1_50_50_50_50_0-0_bw_0-1_864-0/",
+                          r"D:/Courses/Uclouvain/thesis/code/these_Colin/seismogram_curve_extraction/results/sBE_UCC__HHE_2024-01-01T00-06-00_2024-01-14T00-12-00_1000_1_0-1_50_50_50_50_0-5_bw_0-1_864-0/",
+                          r"D:/Courses/Uclouvain/thesis/code/these_Colin/seismogram_curve_extraction/results/sBE_UCC__HHE_2024-01-01T00-06-00_2024-01-14T00-12-00_1000_1_0-1_50_50_50_50_0-6_bw_0-1_864-0/"]
 
     # image_files = [
     #     r'seismogram_curve_extraction/data/ground_truths/overlap_0_images/4.jpg',

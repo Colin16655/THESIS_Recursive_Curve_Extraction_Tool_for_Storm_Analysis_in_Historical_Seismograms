@@ -4,6 +4,14 @@ from typing import Tuple, List, Dict
 import json
 import os
 from dataclasses import dataclass
+import sys 
+
+# Get the absolute path of the project root
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# Add the project root to sys.path
+sys.path.append(project_root)
+
 from seismogram_extraction import stat_analysis
 from seismogram_extraction.stat_analysis import SeismogramAnalysis, sanitize_filename
 import cv2
