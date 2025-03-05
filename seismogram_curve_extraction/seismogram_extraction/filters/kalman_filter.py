@@ -1,126 +1,150 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Tuple, Optional
 import matplotlib.pyplot as plt
-from seismogram_generator import SeismogramGenerator
+from itertools import product
 
 @dataclass
 class KalmanParameters:
     """Parameters for the Kalman filter."""
     dt: float  # Time step
-    measurement_variance: float  # R matrix parameter
-    process_variance: float  # Q matrix base parameter
-    initial_position_variance: float
-    initial_velocity_variance: float
-    initial_acceleration_variance: float
+    measurement_variance: np.ndarray  # R matrix parameter
+    process_variance: np.ndarray  # Q matrix parameters
+    initial_states: np.ndarray # Initial state vector
+    initial_covariance: np.ndarray # Initial state covariance matrix
+
+def get_state_transition_matrix(degree, Delta):
+    """
+    Generates the state transition matrix A for a given system degree.
+    
+    Parameters:
+        degree (int): The number of state variables (e.g., 3 for acceleration, 5 for snap).
+        Delta (float): Time step.
+    
+    Returns:
+        np.array: State transition matrix of shape (degree, degree).
+    """
+    A = np.zeros((degree, degree))
+    for i in range(degree):
+        for j in range(i + 1):
+            A[j,i] = (Delta ** (i - j)) / factorial(i - j)
+    
+    return A
 
 class SeismicTraceKalmanFilter:
-    def __init__(self, params: KalmanParameters):
+    def __init__(self, params: KalmanParameters, degree=2):
         """
         Initialize Kalman Filter for tracking seismic trace.
-        State vector: [position, velocity, acceleration]
+        State vector: [position, velocity, acceleration, ...]
         """
         self.dt = params.dt
         
         # State transition matrix (F)
-        self.F = np.array([
-            [1, self.dt, 0.5 * self.dt**2],
-            [0, 1, self.dt],
-            [0, 0, 1]
-        ])
+        self.A = get_state_transition_matrix(degree, self.dt)
         
         # Measurement matrix (H)
         # We only measure position
-        self.H = np.array([[1, 0, 0]])
+        self.H = np.zeros((1, degree))
+        self.H[0, 0] = 1
         
         # Measurement noise covariance (R)
-        self.R = np.array([[params.measurement_variance]])
-        
+        self.R = params.measurement_variance
+
         # Process noise covariance (Q)
         # Using continuous white noise acceleration model
-        q = params.process_variance
-        self.Q = q * np.array([
-            [self.dt**4/4, self.dt**3/2, self.dt**2/2],
-            [self.dt**3/2, self.dt**2, self.dt],
-            [self.dt**2/2, self.dt, 1]
-        ])
+        self.Q = params.process_variance
         
         # Initial state covariance (P)
-        self.P = np.diag([
-            params.initial_position_variance,
-            params.initial_velocity_variance,
-            params.initial_acceleration_variance
-        ])
+        self.P = params.initial_covariance
         
         # Initial state
-        self.x = np.zeros(3)
-        
-    def predict(self) -> np.ndarray:
+        self.x = params.initial_states
+
+    def predict(self):
         """Predict next state."""
-        # State prediction
-        self.x = self.F @ self.x
-        
-        # Covariance prediction
-        self.P = self.F @ self.P @ self.F.T + self.Q
-        
-        return self.x
+        # check if X has 1 or 2 dimension(s)
+        if len(self.X.shape) == 1:
+            self.X = self.A @ self.X
+            self.P = self.A @ self.P @ self.A.T + self.Q
+        else:
+            # multiple states in parallel
+            for i in range(self.X.shape[0]):
+                self.X[i] = self.A @ self.X[i]
+                self.P[i] = self.A @ self.P[i] @ self.A.T + self.Q
+            # X = (A @ X.T).T  # Batch multiply all rows of X at once
+            # P = A @ P @ A.T + Q  # Assuming P is (N, M, M), use batch multiplication
+        return self.X, self.P
     
-    def update(self, measurement: float) -> np.ndarray:
-        """Update state based on measurement."""
-        # Innovation / measurement residual
-        y = measurement - self.H @ self.x
+    def weighted_update(self, P_fa=1e-2):
+        """
+        Perform the Kalman filter update step using the JPDA approach for multiple traces.
+
+        Args:
+            X (np.ndarray): Shape (N, n) - Predicted state estimates for N traces.
+            P (np.ndarray): Shape (N, n, n) - Predicted covariance matrices for N traces.
+            Z (np.ndarray): Shape (M, m) - Measurements for M detections, m=1.
+            H (np.ndarray): Shape (m, n) - Observation matrix.
+            R (np.ndarray): Shape (m, m) - Measurement noise covariance, m=1.
+
+        Returns:
+            X_updated (np.ndarray): Shape (N, n) - Updated state estimates.
+            P_updated (np.ndarray): Shape (N, n, n) - Updated covariance matrices.
+        """
+        X, P, Z, H, R = self.X, self.P, self.Z, self.H, self.R
+        N, n = X.shape  # Number of traces, state dimension
+        M = Z.shape[0]      # Number of measurements
+        # m = Z.shape[1]      # Measurement dimension
+        m = 1
         
-        # Innovation covariance
-        S = self.H @ self.P @ self.H.T + self.R
+        X_updated = np.copy(X)
+        P_updated = np.copy(P)
         
-        # Kalman gain
-        K = self.P @ self.H.T @ np.linalg.inv(S)
-        
-        # State update
-        self.x = self.x + K @ y
-        
-        # Covariance update
-        I = np.eye(3)
-        self.P = (I - K @ self.H) @ self.P
-        
-        return self.x
+        # Compute innovation covariance and Kalman gains
+        S = np.zeros((N, m, m))  # Innovation covariance for each trace
+        K = np.zeros((N, n, m))  # Kalman gain for each trace
+        for i in range(N):
+            S[i] = H @ P[i] @ H.T + R               # Innovation covariance
+            K[i] = P[i] @ H.T @ np.linalg.inv(S[i]) # Kalman gain
+
+        # Compute association probabilities β_ij using Mahalanobis distance
+        beta = np.zeros((N, M))
+        likelihoods = np.zeros((N, M))
+        for i in range(N):
+            for j in range(M):
+                residual = Z[j] - H @ X[i]  # Innovation (measurement residual)
+                mahalanobis_dist = residual.T @ np.linalg.inv(S[i]) @ residual  # Mahalanobis distance
+                likelihoods[i, j] = np.exp(-0.5 * mahalanobis_dist) / np.sqrt((2*np.pi)**m*np.linalg.det(S[i]))
+
+        # Normalize probabilities
+        for i in range(N):
+            beta[i, :] = likelihoods[i, :] / (np.sum(likelihoods[i, :]) + P_fa)  # Avoid division by zero
+
+        # Update states using weighted innovation
+        for i in range(N):
+            weighted_innovation = np.zeros((m, 1))
+            for j in range(M):
+                weighted_innovation += beta[i, j] * (Z[j] - H @ X[i])
+            # Update state and covariance
+            beta_i = np.sum(beta[i, :])
+            X_updated[i] = X[i] + (K[i] @ weighted_innovation).ravel() # ! Check if this is correct
+            temp = (np.eye(n) - beta_i * K[i] @ H)
+            P_updated[i] = temp @ P[i] @ temp.T + K[i] @ (np.sum(beta[i, :]**2) * R) @ K[i].T
+
+
+        return X_updated, P_updated, beta                   
     
-    def get_state(self) -> np.ndarray:
+    def get_state(self):
         """Return current state estimate."""
         return self.x.copy()
 
-def extract_measurements_from_image(image: np.ndarray) -> Tuple[np.ndarray, float]:
+def reconstruct_trace(image, params):
     """
-    Extract measurements from image column by column.
-    Returns measurements and estimated measurement variance.
-    """
-    height, width = image.shape
-    measurements = np.zeros(width)
-    
-    for x in range(width):
-        # Find the black pixels in this column
-        black_pixels = np.where(image[:, x] < 128)[0]
-        if len(black_pixels) > 0:
-            # Take the average position of black pixels
-            measurements[x] = np.mean(black_pixels)
-        else:
-            # If no black pixels found, use the last known position
-            measurements[x] = measurements[x-1] if x > 0 else height/2
-    
-    # Estimate measurement variance from the data
-    # Using the variance of differences between consecutive measurements
-    measurement_variance = np.var(np.diff(measurements))
-    
-    return measurements, measurement_variance
-
-def reconstruct_trace(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Reconstruct the seismic trace from the image using Kalman filter.
+    Reconstruct the trace from the image using Kalman filter.
     Returns the reconstructed positions and velocities.
-    """
-    # Extract measurements from image
-    measurements, meas_variance = extract_measurements_from_image(image)
-    
+
+    args:
+        image (np.ndarray): The input image.
+        params (KalmanParameters): Parameters for the Kalman filter.
+    """    
     # Initialize Kalman filter parameters
     params = KalmanParameters(
         dt=1.0,  # One pixel width is one time step
@@ -157,17 +181,35 @@ def reconstruct_trace(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
 # Example usage and visualization
 if __name__ == "__main__":
-    # Set the random seed once at the start
-    np.random.seed(42)
+    ### Parameters
+    Dts = [0.5] # np.linspace(0.5, 5, 2) # Time step related to the state transition matrix A, ! different than sampling rate dt of signal s
 
-    # Create a sample seismogram
-    generator = SeismogramGenerator(
-        width=800,
-        height=400,
-        trace_thickness=1,
-        num_traces=2,
-        amplitude_factor=1.0
-    )
+    degrees = [2] # np.arange(2, 5)  # Order of the model (e.g., 2 for constant velocity, 3 for constant acceleration, etc.)
+
+    # Assuming no process noise
+    sigma_ps = [0.01] # np.linspace(1e-2, 2, 2) 
+    sigma_vs = [2] # np.linspace(1e-2, 2, 2)
+
+    # Assuming no measurement noise
+    sigma_zs = [0.25] # np.linspace(1e-6, 1, 5)
+
+    p_fas = [0.0001] # np.linspace(1e-4, 1, 5)
+    ###
+
+    for Dt, sigma_p, sigma_v, sigma_z, p_fa in product(Dts, sigma_ps, sigma_vs, sigma_zs, p_fas):
+        Q = np.zeros((degrees, degrees))
+        Q[0, 0] = sigma_s
+        Q[1, 1] = sigma_v
+
+        params = KalmanParameters(
+            dt = Dt,
+            measurement_variance = np.array([[sigma_z]]),
+            process_variance = Q,
+            initial_states = np.array([0, 0]),
+        process_variance: n  # Q matrix parameters
+        initial_states: np.ndarray # Initial state vector
+        initial_covariance: np.ndarray # Initial state covariance matrix
+        )
     
     # Generate sample image
     image, ground_truths = generator.generate()

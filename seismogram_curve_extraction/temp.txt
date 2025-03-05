@@ -1,0 +1,110 @@
+dt = 0.1   # Time step
+N = 200    # Number of samples
+
+print('sampling time step dt      =', dt, 's')
+print('sampling frequency step df =', 1/dt, 'Hz')
+print('N =', N, 'samples')
+
+t = np.arange(0, N * dt, dt)  # Generates n points
+s1 = np.cos(t)
+s2 = np.sin(1.4*t + 0.7)
+signals = np.array([s1, s2])
+
+fig1, ax1 = plt.subplots(2, 1, figsize=(6, 6))
+
+ax1[0].scatter(t, s1, color='r')
+ax1[0].set_title('Discrete Time $s_1$')
+# ax1[0].set_xlabel('Time')
+ax1[0].set_ylabel('Amplitude')
+ax1[0].plot(np.linspace(0, N*dt, 1000), np.cos(np.linspace(0, N*dt, 1000)), linestyle='--', color='k')
+
+ax1[1].scatter(t, s2, color='b')
+ax1[1].set_title('Discrete Time $s_2$')
+ax1[1].set_xlabel('Time')
+ax1[1].set_ylabel('Amplitude')
+ax1[1].plot(np.linspace(0, N*dt, 1000), np.sin(1.4*np.linspace(0, N*dt, 1000)+0.7), linestyle='--', color='k')
+
+fig1.tight_layout()
+
+images = []
+
+# Save the scaled signal as GT for each overlap and for each signal
+GTs = np.zeros((len(overlap_percentages), len(signals), N))
+
+for l, overlap_percentage in enumerate(overlap_percentages):
+    background = np.full((height, width), 255, dtype=np.int32)  # background of binary image
+
+    num_signals = len(signals)
+            
+    available_height = height - t_margin - b_margin  # Space available for signals
+    max_amplitude = (available_height / num_signals) / (1 - overlap_percentage)  # Control overlap
+            
+    # Create vertical offsets while considering margins and overlap
+    vertical_offsets = np.linspace(t_margin + max_amplitude / 2, height - b_margin - max_amplitude / 2, num_signals)
+    if overlap_percentage == overlap_percentages[len(overlap_percentages)//2]:
+        vertical_offset = vertical_offsets
+
+    # Horizontal shifting
+    available_width = width - l_margin - r_margin
+    horizontal_offsets = l_margin
+    for i, signal in enumerate(signals):
+        # Center, normalize and scale signal
+        signal = (signal - np.mean(signal)) / np.max(np.abs(signal))  # Center and normalize
+        scaled_signal = (max_amplitude / 2) * signal + vertical_offsets[len(signals)-1-i]  # Rescale amplitude to fit within frame
+        # scaled_signal = available_height - scaled_signal
+                
+        # Create x-coordinates for plotting with horizontal offset
+        x_coords = np.linspace(0, available_width - 1, len(signal)).astype(np.int32) + horizontal_offsets
+        y_coords = scaled_signal.astype(np.int32)  # Ensure y-coordinates stay in bounds
+
+        # Save GT
+        GTs[l, i] =  height-y_coords
+                
+        # plt.scatter(x_coords, y_coords, color='r')
+        # plt.show()
+
+        # Draw 
+        for j in range(1, len(x_coords)):
+            cv2.line(background, (x_coords[j-1], height-y_coords[j-1]), (x_coords[j], height-y_coords[j]), 0, line_thickness)
+
+    images.append(background)
+
+images = np.array(images)
+
+# Display the images
+fig1, ax1 = plt.subplots(1, 2, figsize=(6, 3))
+
+ax1[0].scatter(t, s1, color='r')
+ax1[0].set_title('Discrete Time $s_1$')
+ax1[0].set_xlabel('Time')
+ax1[0].set_ylabel('Amplitude')
+ax1[0].plot(np.linspace(0, N*dt, 1000), np.cos(np.linspace(0, N*dt, 1000)), linestyle='--', color='k')
+
+ax1[1].scatter(t, s2, color='b')
+ax1[1].set_title('Discrete Time $s_2$')
+ax1[1].set_xlabel('Time')
+# ax1[1].set_ylabel('Amplitude')
+ax1[1].plot(np.linspace(0, N*dt, 1000), np.sin(1.4*np.linspace(0, N*dt, 1000)+0.7), linestyle='--', color='k')
+
+fig1.tight_layout()
+
+fig2, ax2 = plt.subplots(1, 3, figsize=(15, 8))
+titles = [overlap_percentages[0], overlap_percentages[len(overlap_percentages)//2], overlap_percentages[-1]]
+for i, image in enumerate([images[0], images[len(images)//2], images[-1]]):
+    ax2[i].set_title('Overlap = ' + str(np.round(titles[i], 3)))
+    ax2[i].imshow(image, cmap='gray', vmin=0, vmax=255)
+    # ax2[i].axis('off')
+# Show the plot
+plt.show()
+
+# Save images[2] to a pdf file
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.imshow(images[len(images)//2], cmap='gray', vmin=0, vmax=255)
+# trace horizontal lines 
+colors = ['r', 'b']
+for i, offset in enumerate(vertical_offset):
+    ax.axhline(y=offset, linestyle='--', color=colors[i], label='meanline $s_{}$'.format(i+1))
+ax.legend(loc='upper left', bbox_to_anchor=(1, 1)) 
+# ax.axis('off')
+fig.savefig('overlap_0.2.pdf', format='pdf', bbox_inches='tight', dpi=300)
+plt.show()
