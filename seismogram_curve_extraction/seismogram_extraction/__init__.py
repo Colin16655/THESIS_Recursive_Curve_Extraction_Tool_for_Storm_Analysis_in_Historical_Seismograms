@@ -9,8 +9,8 @@ This package provides tools for:
 """
 
 # Import key modules for convenient access
-from .stat_analysis import sanitize_filename, SeismogramAnalysis
-from .data_generation import SeismogramGenerator
+from .data_generation.stat_analysis import sanitize_filename, SeismogramAnalysis
+from .data_generation.data_generation import SeismogramGenerator
 # from .preprocessing import preprocess_seismogram
 # from .pipeline import run_pipeline
 

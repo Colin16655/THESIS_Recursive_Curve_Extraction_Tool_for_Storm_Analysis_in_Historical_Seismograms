@@ -6,21 +6,21 @@ The project is organized as follows:
 seismogram_curve_extraction/
 │
 ├── data/                        # Data storage
-│   ├── raw/                     # Raw historical seismograms
-│   ├── processed/               # Preprocessed data
-│   ├── ground_truth/            # Ground truth data
+│   ├── raw/                     # Raw full historical seismograms
+│   ├── sines/                   # Artificial data obtained from simple sinusoidal signals
+│   ├── resampled/               # Artificial data obtained from Inverse Fourier Transform
+│   ├── seismograms/             # Subsampled raw historical seismograms
+│   │   ├── preprocessed/               # Preprocessed data
 │   └── results/                 # Outputs from the processing pipeline
 │
 ├── seismogram_extraction/       # Main package
 │   ├── __init__.py              # Package initialization
-│   ├── data_generation.py       # Code for generating ground truth data
+│   ├── data_generation.py       # Code for generating ground truth data (sines and resampled)
+│   ├── raster_image.py          # Code for subsampling the raw full historical seismograms
 │   ├── preprocessing.py         # Code for preprocessing existing seismograms
 │   ├── stat_analysis.py         # Code for preprocessing existing seismograms
 │   ├── filters/                 # Filter implementations
 │   │   ├── kalman_filter.py     # Base Kalman filter implementation
-│   │   ├── extended_kalman.py   # Extended Kalman filter version
-│   │   ├── unscented_kalman.py  # Unscented Kalman filter version
-│   │   └── particle_filter.py   # Particle filter implementation
 │   ├── models/                  # Neural network implementations
 │   │   ├── rnn.py               # Recurrent Neural Network implementation
 │   │   └── lstm.py              # Long Short-Term Memory implementation

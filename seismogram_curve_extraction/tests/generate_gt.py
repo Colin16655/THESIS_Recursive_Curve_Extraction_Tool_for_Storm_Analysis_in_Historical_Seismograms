@@ -9,9 +9,9 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # Add the project root to sys.path
 sys.path.append(project_root)
 
-from seismogram_extraction.data_generation import SeismogramGenerator
-from seismogram_extraction import stat_analysis
-from seismogram_extraction.stat_analysis import SeismogramAnalysis
+from seismogram_extraction.data_generation.data_generation import SeismogramGenerator
+from seismogram_extraction.data_generation import stat_analysis
+from seismogram_extraction.data_generation.stat_analysis import SeismogramAnalysis
 
 # np.random.seed(42)
 

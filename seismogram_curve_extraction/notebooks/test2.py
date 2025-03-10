@@ -55,6 +55,7 @@ assignments_series = []
 for t in range(T):
     predicted_positions = predict_positions(states)
     measurements = generate_measurements_sine(true_trajectories[:, t], M)
+    print("X", predicted_positions.shape, "measurements", measurements.shape)
     cost_matrix = compute_cost_matrix(predicted_positions, measurements)
     
     # Handle cases where M != N by padding the cost matrix
