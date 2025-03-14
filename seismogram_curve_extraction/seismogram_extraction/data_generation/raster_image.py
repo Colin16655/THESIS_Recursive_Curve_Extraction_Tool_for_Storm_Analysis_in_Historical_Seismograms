@@ -235,14 +235,14 @@ class RasterImage:
         
         # Display the selected image
         ax.imshow(img_to_display, cmap='gray')
-        ax.set_title(f"{os.path.basename(self.file_path)} - {image_type}")
+        # ax.set_title(f"{os.path.basename(self.file_path)} - {image_type}")
         ax.axis('off')  # Hide the axis
 
         # Optionally save the figure as a PDF
         if save:
             os.makedirs(directory, exist_ok=True)  # Create directory if it doesn't exist
             full_path = os.path.join(directory, filename)
-            fig.savefig(full_path, format='pdf', bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save as PDF with tight layout
+            fig.savefig(full_path, bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save with tight layout
             print(f"Figure saved as '{full_path}'.")
 
         # Show the figure
@@ -315,7 +315,7 @@ if __name__ == "__main__":
     # ]
 
     # Hyperparameters
-    factor = 10  # Downsample sclicing factor
+    factor = 5  # Downsample sclicing factor
 
     # Load, resize, and display each image
     for source_directory in source_directories:
@@ -358,7 +358,7 @@ if __name__ == "__main__":
 
                 # Display the binary image
                 raster_image.display_image(image_type='binary_image', save=True, 
-                                        filename=f"binary_local_block_size_{params_local['block_size']}_offset_{params_local['offset']}.pdf", directory=f"output/{os.path.basename(image_file).removesuffix('.tif')}")
+                                        filename=f"binary_local_block_size_{params_local['block_size']}_offset_{params_local['offset']}.jpg", directory=f"output/{os.path.basename(image_file).removesuffix('.tif')}")
                 # Plot the intensity histogram of the binary image
                 raster_image.plot_histogram(image_type='binary_image', save=True, 
                                             filename=f"binary_local_histogram_{params_local['block_size']}_offset_{params_local['offset']}.pdf", directory=f"output/{os.path.basename(image_file).removesuffix('.tif')}")

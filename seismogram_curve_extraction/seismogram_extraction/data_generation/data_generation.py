@@ -222,7 +222,6 @@ class SeismogramGenerator:
         background_color = (235, 215, 180) if color_mode == 'rgb' else 235
         background = np.full((height, width, 3), background_color, dtype=np.uint8) if color_mode == 'rgb' \
                     else np.full((height, width), background_color, dtype=np.uint8)
-
         # Compute available height and max amplitude
         available_height = height - t_margin - b_margin
         max_amplitude = (available_height / num_signals) / (1 - overlap_percentage)
@@ -242,7 +241,7 @@ class SeismogramGenerator:
             color_palette = [(0, 0, 0)] * num_signals  # Default to black
 
         # Prepare ground truth storage
-        self.GTs = np.zeros((num_signals, len(signals[0])))
+        self.GTs = np.zeros((num_signals, background.shape[1]))
 
         for i, signal in enumerate(signals):
             # Normalize and scale signal
@@ -252,8 +251,11 @@ class SeismogramGenerator:
             scaled_signal = (max_amplitude / 2) * signal + vertical_offsets[num_signals - 1 - i]
 
             # Generate coordinates efficiently
-            x_coords = np.linspace(0, available_width - 1, len(signal)).astype(np.int32) + horizontal_offsets
+            x_coords = np.linspace(0, available_width - 1, background.shape[1]).astype(np.int32) + horizontal_offsets
             y_coords = np.clip(scaled_signal.astype(np.int32), 0, height - 1)  # Ensure bounds
+
+            # Crop x_coords and y_coords to background.shape[1]
+            y_coords = y_coords[:background.shape[1]]
 
             self.GTs[i] = height - y_coords
 
@@ -268,7 +270,7 @@ class SeismogramGenerator:
         # noise = np.random.normal(0, noise_level * 255, background.shape).astype(np.int32)
         # final_image = np.clip(background + noise, 0, 255).astype(np.uint8)
         final_image = background
-        
+
         self.seismo_gt.image = final_image
         return final_image
     
@@ -341,11 +343,11 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
-    l_margin = 50
-    r_margin = 50
+    l_margin = 0 # must be 0 otherwise GT are not corect 
+    r_margin = 0 # must be 0 otherwise GT are not corect 
     t_margin = 50
     b_margin = 50
     color_mode = 'bw'
