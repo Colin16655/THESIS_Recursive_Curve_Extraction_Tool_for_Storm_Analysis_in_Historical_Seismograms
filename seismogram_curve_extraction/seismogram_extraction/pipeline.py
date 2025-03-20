@@ -30,7 +30,7 @@ def mean_squared_error(y_true, y_pred):
     for i in range(y_true.shape[0]):
         for j in range(y_true.shape[2]):
             MSEs[i, j] = np.mean((y_true[i, :, j] - y_pred[i, :, j])**2)
-    print(MSEs)
+    # print(MSEs)
     # print(y_true.shape)
     # temp1 = (y_true - y_pred)**2
     # print(temp1.shape)
@@ -100,9 +100,9 @@ sys.path.append(project_root)
 
 from seismogram_extraction.filters.weighted_kalman_filter import WeightedKalmanFilter
 # from seismogram_extraction.filters.hungarian_kalman_filter_kalman_filter import HungarianKalmanFilter
-from seismogram_extraction.models.lrnn import LinearRNN
+# from seismogram_extraction.models.lrnn import LinearRNN
 
-def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, processing_method, batch_size=4):
+def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, processing_method, batch_size=4, save=True):
     """
     Evaluate the performance of a processing method on a dataset.
     
@@ -125,7 +125,6 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, pr
         Standard deviation of the error of the predictions.
     """
     dataloader = create_dataloader(images_folder_path, gt_s_folder_path, batch_size=batch_size)
-    
     MSEs = np.full(len(dataloader), np.nan)
     all_MSEs = []
 
@@ -139,9 +138,7 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, pr
         X_0[:, :, 0] = X_0_temp
         P_0 = np.zeros((len(images), N_traces, len(processing_method.A), len(processing_method.A)))
         P_0[:, :, 1, 1] = 10
-        
         X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0)
-
         ground_truths = ground_truths.numpy().transpose(0, 2, 1)
 
         total_MSE = 0
@@ -151,17 +148,16 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, pr
             P_pos_batch_pred = P_batch_pred[i, :, :, 0, 0]
             P_vel_batch_pred = P_batch_pred[i, :, :, 1, 1]
             gr = ground_truths[i]
-
-            plt.imshow(batch[0], cmap='gray')
+            if save: plt.imshow(batch[0], cmap='gray')
             temp_total_MSE = 0
             for j in range(X_pos_batch_pred.shape[1]):
                 MSE = np.mean((X_pos_batch_pred[:, j] - gr[:, j])**2)
                 temp_total_MSE += MSE
-                plt.scatter(np.arange(0, len(X_pos_batch_pred[:, j])), X_pos_batch_pred[:, j], s=1, label=r"MSE: {:.2f}".format(MSE))
-            plt.legend(markerscale=5)
+                if save: plt.scatter(np.arange(0, len(X_pos_batch_pred[:, j])), X_pos_batch_pred[:, j], s=1, label=r"MSE: {:.2f}".format(MSE))
+            if save: plt.legend(markerscale=5)
             # Save the plot
-            plt.savefig(output_folder_path + f"/output_{batch_idx}_{i}.pdf", format='pdf', bbox_inches='tight', dpi=300)
-            plt.close()
+            if save: plt.savefig(output_folder_path + f"/output_{batch_idx}_{i}.pdf", format='pdf', bbox_inches='tight', dpi=300)
+            if save: plt.close()
 
             temp_total_MSE /= X_pos_batch_pred.shape[1]
             total_MSE += temp_total_MSE
@@ -173,8 +169,9 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, pr
         print(f"\nMSE of the batch {batch_idx}: {MSEs[batch_idx]}")
     
     MSEs_std = np.std(all_MSEs, axis=0)
-    print("\n-------------------------------\n")
+    # print("\n-------------------------------\n")
     print(f"Total Average MSE: {np.mean(MSEs)}")
     print(f"Std: {MSEs_std}")
-    print("\n-------------------------------\n")
+    # print("\n-------------------------------\n")
+    return np.mean(MSEs), np.mean(all_MSEs), MSEs_std
     
