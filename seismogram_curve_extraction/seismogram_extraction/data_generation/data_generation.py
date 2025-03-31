@@ -343,7 +343,7 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
     l_margin = 0 # must be 0 otherwise GT are not corect 
@@ -353,9 +353,9 @@ if __name__ == "__main__":
     color_mode = 'bw'
 
     dt = 0.3
-    T = 86400*0.003
+    T = 86400*0.003 / 4
 
-    num_images = 10
+    num_images = 1000
 
     # Create generator with custom parameters
     generator = SeismogramGenerator()
@@ -393,8 +393,8 @@ if __name__ == "__main__":
                                                                                                       dt,
                                                                                                       T)) + ".pkl"
         
-        filepath_data = sanitize_filename(directory_data + r"\overlap_{}".format(overlap_percentage)) 
-        
+        filepath_data = sanitize_filename(directory_data + r"\overlap_{:.2f}".format(overlap_percentage))
+
         for j in tqdm(range(num_images), desc="Generating images"):
             filepath_image = filepath_data + r"\signals\image_{:05d}.jpg".format(num)
             filepath_npy = filepath_data + r"\ground_truth\sample_{:05d}.npy".format(num)
@@ -407,7 +407,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError("Invalid option. Choose 0 or 1.")
 
-            seismogram_image = generator.generate_seismogram_raster(l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
+            seismogram_image = generator.generate_seismogram_raster(width=50, height=200, l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
                                                                 overlap_percentage=overlap_percentage, color_mode=color_mode)
         
             # Save the results for future use
