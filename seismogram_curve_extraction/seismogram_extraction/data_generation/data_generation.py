@@ -256,7 +256,6 @@ class SeismogramGenerator:
 
             # Crop x_coords and y_coords to background.shape[1]
             y_coords = y_coords[:background.shape[1]]
-
             self.GTs[i] = height - y_coords
 
             # Convert to OpenCV polyline format
@@ -353,9 +352,9 @@ if __name__ == "__main__":
     color_mode = 'bw'
 
     dt = 0.3
-    T = 86400*0.003 / 4
+    T = 86400*0.003
 
-    num_images = 1000
+    num_images = 20
 
     # Create generator with custom parameters
     generator = SeismogramGenerator()
@@ -369,8 +368,8 @@ if __name__ == "__main__":
         directory = r"seismogram_extraction\data_generation\results"
         
         if option == 0:
-            folder_path = sanitize_filename(r"\sines")
-            directory_data = r"data\sines"
+            folder_path = sanitize_filename(r"\sines_long")
+            directory_data = r"data\sines_long"
         if option == 1:
             folder_path = sanitize_filename(r"\{}_{}_{}_{}_{}_{}_{}_{}_{}".format(network,
                                                                     station,
@@ -407,7 +406,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError("Invalid option. Choose 0 or 1.")
 
-            seismogram_image = generator.generate_seismogram_raster(width=50, height=200, l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
+            seismogram_image = generator.generate_seismogram_raster(width=800, height=400, l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
                                                                 overlap_percentage=overlap_percentage, color_mode=color_mode)
         
             # Save the results for future use

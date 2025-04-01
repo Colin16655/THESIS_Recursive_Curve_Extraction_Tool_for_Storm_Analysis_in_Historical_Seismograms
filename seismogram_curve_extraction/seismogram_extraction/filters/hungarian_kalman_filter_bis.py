@@ -9,7 +9,6 @@ class HungarianKalmanFilterBis:
         self.R = R  # Measurement noise covariance
     
     def predict(self):
-        # print("s", self.X.shape)
         X, P, A, Q = self.X, self.P, self.A, self.Q
         # check if X has 1 or 2 dimension(s)
         if len(X.shape) == 1:
@@ -22,14 +21,11 @@ class HungarianKalmanFilterBis:
                 self.P[o] = A @ P[o] @ A.T + Q
             # X = (A @ X.T).T  # Batch multiply all rows of X at once
             # P = A @ P @ A.T + Q  # Assuming P is (N, M, M), use batch multiplication
-        # print("e", self.X.shape)
         return self.X, self.P
     
     def update(self, X, P, Z):
-        # print('start', X.shape)
         H, R = self.H, self.R
         if len(X.shape) == 1:
-            # print('booo')
             S = H @ P @ H.T + R
             K = P @ H.T @ np.linalg.inv(S)
             X = X + K @ (Z - H @ X)
@@ -43,7 +39,7 @@ class HungarianKalmanFilterBis:
         # print('end', self.X.shape)
         return X, P
 
-    def process_sequence(self, sequence, X_0, P_0):
+    def process_sequence(self, sequence, X_0, P_0, step=5):
         """
         Processes a sequence of inputs as if using an RNN. This function mimics an RNN behavior,
         where each time step input updates the state.
@@ -64,8 +60,6 @@ class HungarianKalmanFilterBis:
         # Initial state
         X_results[:, 0, :, :] = X_0
         P_results[:, 0, :, :, :] = P_0
-        # print("\n X: X_results.shape: ", X_results.shape)
-        # print("\n P: P_results.shape: ", P_results.shape)
         avg_N_components = X_results.shape[2]
         for i, batch in enumerate(sequence):
             self.X = X_0[i]
@@ -73,12 +67,16 @@ class HungarianKalmanFilterBis:
 
             image = batch[0].max() - batch[0]
             tresh = 0.1
+            image_stepped = image[:, ::step]
 
-            for k in range(1, image.shape[1]):
+            for k in range(1, image_stepped.shape[1]):
                 # print(("a", self.X.shape))
-                col = image[:, k]# find the non 0 value pixels, with a given treshold
+                col = image_stepped[:, k]# find the non 0 value pixels, with a given treshold
                 measurements = (np.where(col > tresh)[0]).astype(np.float64)
-                M = len(measurements)
+                centroids, stds = self.cluster_and_compute_stats(measurements, spacing=1)
+                # print("a", measurements)
+                # print("b", centroids)
+                M = len(centroids)
                 if M == 0:
                     # Predict
                     X_w, P_w = self.predict()
@@ -90,7 +88,7 @@ class HungarianKalmanFilterBis:
                 # Predict
                 X_w, P_w = self.predict()  
                 # print("z", X_w.shape, self.X.shape)   
-                cost_matrix = self.compute_cost_matrix(X_w[:, 0], measurements)
+                cost_matrix = self.compute_cost_matrix(self.X[:, 0], centroids)
 
                 # Handle cases where M != N by padding the cost matrix
                 max_dim = max(avg_N_components, M)
@@ -102,17 +100,51 @@ class HungarianKalmanFilterBis:
                 # Update
                 X_weighted = np.copy(X_w)
                 P_weighted = np.copy(P_w)
+                # print("-----------------------")
+                # print(measurements)
                 for l, j in zip(row_ind, col_ind):
                     if l < avg_N_components and j < M:  # Ignore padded assignments
-                        X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], measurements[j])
+                        # print("l", l, centroids[j])
+                        if padded_cost_matrix[l, j] < 50:
+                            X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], centroids[j])
                 self.X = np.copy(X_weighted)
                 self.P = np.copy(P_weighted)
                 # Save
-                # print("r", X_weighted.shape)
                 X_results[i, k, :, :] = X_weighted
                 P_results[i, k, :, :, :] = P_weighted
+        return X_results[:, :k+1], P_results[:, :k+1]
+    
+    @staticmethod
+    def cluster_and_compute_stats(measurements, spacing=1):
+        """
+        Given a sorted array of pixel positions, clusters contiguous pixels and computes
+        the centroid and standard deviation of each cluster.
 
-        return X_results, P_results
+        Parameters:
+            measurements (np.ndarray): 1D array of pixel positions (sorted or unsorted).
+            spacing (int): Maximum allowed gap between consecutive pixels to form a cluster.
+
+        Returns:
+            centroids (np.ndarray): Array of centroids for each cluster.
+            stds (np.ndarray): Array of standard deviations for each cluster.
+        """
+        if len(measurements) == 0:
+            return np.array([]), np.array([])
+
+        # Sort the measurements (if not already sorted)
+        measurements = np.sort(measurements)
+
+        # Find cluster boundaries
+        cluster_splits = np.where(np.diff(measurements) > spacing)[0] + 1
+
+        # Split into clusters
+        clusters = np.split(measurements, cluster_splits)
+
+        # Compute centroid and std for each cluster
+        centroids = np.array([np.mean(cluster) for cluster in clusters])
+        stds = np.array([np.std(cluster) if len(cluster) > 1 else 1.0 for cluster in clusters])  # std=1.0 if singleton
+
+        return centroids, stds
 
     @staticmethod
     # Compute Cost Matrix (Euclidean Distance)
