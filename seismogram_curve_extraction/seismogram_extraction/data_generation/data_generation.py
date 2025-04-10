@@ -342,7 +342,7 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
     l_margin = 0 # must be 0 otherwise GT are not corect 
@@ -351,13 +351,13 @@ if __name__ == "__main__":
     b_margin = 50
     color_mode = 'bw'
 
-    dt = 0.3
+    dt = 0.3 / 4
     T = 86400*0.003
 
     num_images = 20
 
     # Create generator with custom parameters
-    generator = SeismogramGenerator()
+    generator = SeismogramGenerator(num_traces=2) # USER
 
     for i, overlap in enumerate(np.linspace(0.0, 0.5, 10)):  # Different overlap levels
         print(f"\n\nOverlap percentage: {overlap}")
@@ -369,7 +369,7 @@ if __name__ == "__main__":
         
         if option == 0:
             folder_path = sanitize_filename(r"\sines_long")
-            directory_data = r"data\sines_long"
+            directory_data = r"data_2_traces\sines_long"
         if option == 1:
             folder_path = sanitize_filename(r"\{}_{}_{}_{}_{}_{}_{}_{}_{}".format(network,
                                                                     station,
@@ -380,7 +380,7 @@ if __name__ == "__main__":
                                                                     batch_length,
                                                                     bandwidth_0,
                                                                     bandwidth))
-            directory_data = r"data\resampled" + folder_path
+            directory_data = r"data_2_traces\resampled" + folder_path
         os.makedirs(folder_path, exist_ok=True)
         os.makedirs(directory_data, exist_ok=True)
         filepath = sanitize_filename(directory + folder_path + r"\{}_{}_{}_{}_{}_{}_{}_{}\seismo_gt".format(l_margin,

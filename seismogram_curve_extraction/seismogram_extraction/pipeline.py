@@ -75,7 +75,7 @@ from seismogram_extraction.filters.weighted_kalman_filter import WeightedKalmanF
 # from seismogram_extraction.filters.hungarian_kalman_filter_kalman_filter import HungarianKalmanFilter
 # from seismogram_extraction.models.lrnn import LinearRNN
 
-def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, processing_method, batch_size=4, save=True, step=5):
+def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, processing_method, batch_size=4, save=True, step=1):
     """
     Evaluate the performance of a processing method on a dataset.
     
@@ -103,47 +103,52 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path, pr
 
     count = 0
     for batch_idx, (images, ground_truths) in enumerate(dataloader):
-        N_traces = ground_truths.shape[1]
+        if count < 5:
+            N_traces = ground_truths.shape[1]
 
-        # Artificially provide the initial state, and the number of states
-        # This will be automatised for the seismograms images
-        X_0 = np.zeros((len(images), N_traces, len(processing_method.A)))
-        X_0_temp = ground_truths[:, :, 0].numpy()
-        X_0[:, :, 0] = X_0_temp
-        P_0 = np.zeros((len(images), N_traces, len(processing_method.A), len(processing_method.A)))
-        P_0[:, :, 1, 1] = 10
-        X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0, step=step)
-        ground_truths = ground_truths.numpy().transpose(0, 2, 1)
+            # Artificially provide the initial state, and the number of states
+            # This will be automatised for the seismograms images
+            X_0 = np.zeros((len(images), N_traces, len(processing_method.A)))
+            X_0_temp = ground_truths[:, :, 0].numpy()
+            X_0[:, :, 0] = X_0_temp
+            P_0 = np.zeros((len(images), N_traces, len(processing_method.A), len(processing_method.A)))
+            P_0[:, :, 1, 1] = 10
+            X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0, step=step)
+            ground_truths = ground_truths.numpy().transpose(0, 2, 1)
 
-        total_RMSE = 0
-        for i, batch in enumerate(images):
-            X_vertical_pos_batch_pred = X_batch_pred[i, :, :, 0]
-            X_vel_batch_pred = X_batch_pred[i, :, :, 1]
-            P_pos_batch_pred = P_batch_pred[i, :, :, 0, 0]
-            P_vel_batch_pred = P_batch_pred[i, :, :, 1, 1]
-            gr = ground_truths[i]
-            if save: plt.imshow(batch[0], cmap='gray')
-            temp_total_RMSE = 0
-            for j in range(X_vertical_pos_batch_pred.shape[1]):
-                RMSE = np.sqrt(np.mean((X_vertical_pos_batch_pred[:, j] - gr[::step, j])**2))
-                temp_total_RMSE += RMSE
+            total_RMSE = 0
+            for i, batch in enumerate(images):
+                X_vertical_pos_batch_pred = X_batch_pred[i, :, :, 0]
+                X_vel_batch_pred = X_batch_pred[i, :, :, 1]
+                P_pos_batch_pred = P_batch_pred[i, :, :, 0, 0]
+                P_vel_batch_pred = P_batch_pred[i, :, :, 1, 1]
+                gr = ground_truths[i]
+                if save: plt.imshow(batch[0], cmap='gray')
+                temp_total_RMSE = 0
+                for j in range(X_vertical_pos_batch_pred.shape[1]):
+                    RMSE = np.sqrt(np.mean((X_vertical_pos_batch_pred[:, j] - gr[::step, j])**2))
+                    temp_total_RMSE += RMSE
+                    if save and count < 5: 
+                        plt.scatter(np.arange(0, batch.shape[-1])[::step], X_vertical_pos_batch_pred[:, j], s=1, label=r"RMSE: {:.2f}".format(RMSE))
+                # Save the plot
                 if save and count < 5: 
-                    plt.scatter(np.arange(0, batch.shape[-1])[::step], X_vertical_pos_batch_pred[:, j], s=1, label=r"RMSE: {:.2f}".format(RMSE))
-            # Save the plot
-            if save and count < 5: 
-                plt.legend(markerscale=5)
-                plt.savefig(output_folder_path + f"/output_{batch_idx}_{i}.pdf", format='pdf', bbox_inches='tight', dpi=300)
-                plt.close()
-                count += 1
+                    plt.legend(markerscale=5)
+                    plt.savefig(output_folder_path + f"/output_{batch_idx}_{i}.pdf", format='pdf', bbox_inches='tight', dpi=300)
+                    plt.close()
+                    count += 1
 
-            temp_total_RMSE /= X_vertical_pos_batch_pred.shape[1]
-            total_RMSE += temp_total_RMSE
-        total_RMSE /= len(images)
+                temp_total_RMSE /= X_vertical_pos_batch_pred.shape[1]
+                total_RMSE += temp_total_RMSE
+            total_RMSE /= len(images)
 
-        all_RMSEs.append(total_RMSE)
+            all_RMSEs.append(total_RMSE)
 
-        RMSEs[batch_idx] = total_RMSE
-        # print(f"\nRMSE of the batch {batch_idx}: {RMSEs[batch_idx]}")
+            RMSEs[batch_idx] = total_RMSE
+            # print(f"\nRMSE of the batch {batch_idx}: {RMSEs[batch_idx]}")
+
+            count += 1
+        else:
+            break
     
     RMSEs_std = np.std(all_RMSEs, axis=0)
     # print("\n-------------------------------\n")

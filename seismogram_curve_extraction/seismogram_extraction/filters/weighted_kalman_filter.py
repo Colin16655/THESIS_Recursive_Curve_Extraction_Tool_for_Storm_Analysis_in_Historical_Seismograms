@@ -85,7 +85,7 @@ class WeightedKalmanFilter:
 
         return X_updated, P_updated, beta
 
-    def process_sequence(self, sequence, X_0, P_0):
+    def process_sequence(self, sequence, X_0, P_0, step=None):
         """
         Processes a sequence of inputs as if using an RNN. This function mimics an RNN behavior,
         where each time step input updates the state.
