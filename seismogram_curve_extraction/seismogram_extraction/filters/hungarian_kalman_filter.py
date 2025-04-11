@@ -89,7 +89,7 @@ class HungarianKalmanFilter:
                 # Predict
                 X_w, P_w = self.predict()  
                 # print("z", X_w.shape, self.X.shape)   
-                cost_matrix = self.compute_cost_matrix(self.X[:, 0], centroids)
+                cost_matrix = self.compute_cost_matrix(X_w[:, 0], centroids)
 
                 # Handle cases where M != N by padding the cost matrix
                 max_dim = max(avg_N_components, M)
