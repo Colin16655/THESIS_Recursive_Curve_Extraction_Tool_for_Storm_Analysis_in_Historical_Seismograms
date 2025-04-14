@@ -86,33 +86,17 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
     """
     Evaluate the performance of a processing method on a dataset.
 
-    Parameters
-    ----------
-    images_folder_path : str
-        Path to the folder containing the images.
-    gt_s_folder_path : str
-        Path to the folder containing the ground truth seismograms.
-    processing_method : object
-        Object that implements the process_sequence method.
-    P_0 : np.ndarray, shape (len(processing_method.A), len(processing_method.A)))
-        Initial state covariance matrix.
-    batch_size : int
-        Number of samples per batch.
-    save : bool
-        Whether to save plots of predictions.
-    step : int
-        Downsampling step for evaluation.
-
     Returns
     -------
     average_rmse : float
-        Average RMSE across all batches.
+        Average RMSE across all curves of all images.
     rmse_std : float
-        Standard deviation of batch-wise RMSEs.
+        Standard deviation of the per-curve RMSEs.
+    all_curve_rmses : list
+        List of RMSEs for each curve in each image.
     """
     dataloader = create_dataloader(images_folder_path, gt_s_folder_path, batch_size=batch_size)
-    RMSEs = np.full(len(dataloader), np.nan)
-    all_batch_rmse = []
+    all_curve_rmses = []
 
     plot_counter = 0
 
@@ -120,18 +104,12 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
         N_traces = ground_truths.shape[1]
         batch_size = len(images)
 
-        # Artificially provide the initial state, and the number of states
-        # This will be automatised for the seismograms images
-        X_0 = np.zeros((len(images), N_traces, len(processing_method.A)))
+        X_0 = np.zeros((batch_size, N_traces, len(processing_method.A)))
         X_0[:, :, 0] = ground_truths[:, :, 0].numpy()
-        P_0_extended = np.tile(P_0, (len(images), N_traces, 1, 1))
+        P_0_extended = np.tile(P_0, (batch_size, N_traces, 1, 1))
 
-        # Run filtering
         X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, step=step)
         ground_truths = ground_truths.numpy().transpose(0, 2, 1)
-
-        # Compute RMSE for each sample in the batch
-        batch_rmse_total = 0
 
         for i in range(batch_size):
             pred_positions = X_batch_pred[i, :, :, 0]
@@ -144,70 +122,62 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
 
             true_positions = ground_truths[i, ::step, :]  # shape (T, N_traces)
 
-            sample_rmse = 0
-
             if save and plot_counter < 5:
-                plt.imshow(images[i, 0], cmap='gray')  # Plot background once per sample
+                fig, ax = plt.subplots(figsize=(8, 4))
+                t_steps = np.arange(0, images.shape[-1])[::step]
+                ax.imshow(images[i, 0], cmap='gray')
 
             for j in range(pred_positions.shape[1]):
                 rmse = compute_rmse(pred_positions[:, j], true_positions[:, j])
-                sample_rmse += rmse
+                all_curve_rmses.append(rmse)
 
                 if save and plot_counter < 5:
-                    plt.scatter(np.arange(0, images.shape[-1])[::step], pred_positions[:, j], s=1,
-                                label=f"Trace {j+1} RMSE: {rmse:.2f}")
-
-            sample_rmse /= pred_positions.shape[1]
-            batch_rmse_total += sample_rmse
+                    ax.plot(t_steps, pred_positions[:, j], label=f'Trace {j+1} RMSE: {rmse:.2f}')
+                    ax.fill_between(t_steps,
+                                    pred_positions[:, j] - std_positions[:, j],
+                                    pred_positions[:, j] + std_positions[:, j],
+                                    alpha=0.3)
 
             if save and plot_counter < 5:
-                plt.legend(markerscale=5)
-                plt.savefig(f"{output_folder_path}/output_{batch_idx}_{i}.pdf",
+                ax.legend(markerscale=5)
+                fig.tight_layout()
+                fig.savefig(f"{output_folder_path}/output_{batch_idx}_{i}.pdf",
                             format='pdf', bbox_inches='tight', dpi=300)
-                plt.close()
+                plt.close(fig)
 
-                # Save position, velocity, acceleration subplots
                 T = pred_positions.shape[0]
                 t = np.arange(T)
-
-                fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+                fig, axes = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
 
                 for j in range(N_traces):
-                    axes[0].plot(t, pred_positions[:, j], label=f'Trace {j+1}')
+                    axes[0].plot(t, pred_velocities[:, j], label=f'Trace {j+1}')
                     axes[0].fill_between(t,
-                                         pred_positions[:, j] - std_positions[:, j],
-                                         pred_positions[:, j] + std_positions[:, j],
-                                         alpha=0.3)
-                    axes[1].plot(t, pred_velocities[:, j], label=f'Trace {j+1}')
-                    axes[1].fill_between(t,
                                          pred_velocities[:, j] - std_velocities[:, j],
                                          pred_velocities[:, j] + std_velocities[:, j],
                                          alpha=0.3)
-                    axes[2].plot(t, pred_accelerations[:, j], label=f'Trace {j+1}')
-                    axes[2].fill_between(t,
+                    axes[1].plot(t, pred_accelerations[:, j], label=f'Trace {j+1}')
+                    axes[1].fill_between(t,
                                          pred_accelerations[:, j] - std_accelerations[:, j],
                                          pred_accelerations[:, j] + std_accelerations[:, j],
                                          alpha=0.3)
 
-                axes[0].set_ylabel('Position')
-                axes[0].legend()
-                axes[1].set_ylabel('Velocity')
-                axes[2].set_ylabel('Acceleration')
-                axes[2].set_xlabel('Time step')
-                fig.suptitle(f'Filtered State - Sample {batch_idx}_{i}')
+                axes[0].set_xlim(0, T)
+                axes[1].set_xlim(0, T)
+                axes[0].set_ylabel('Velocity')
+                axes[1].set_ylabel('Acceleration')
+                axes[1].set_xlabel('Time step')
+                axes[0].legend(markerscale=5)
+                axes[1].legend(markerscale=5)
 
-                plt.tight_layout()
-                plt.savefig(f"{output_folder_path}/states_{batch_idx}_{i}.pdf",
+                fig.tight_layout()
+                fig.savefig(f"{output_folder_path}/states_{batch_idx}_{i}.pdf",
                             format='pdf', bbox_inches='tight', dpi=300)
-                plt.close()
+                plt.close(fig)
 
                 plot_counter += 1
 
-        batch_rmse_avg = batch_rmse_total / batch_size
-        all_batch_rmse.append(batch_rmse_avg)
+    average_rmse = np.mean(all_curve_rmses)
+    rmse_std = np.std(all_curve_rmses)
 
-    average_rmse = np.mean(all_batch_rmse)
-    rmse_std = np.std(all_batch_rmse)
-
-    return average_rmse, rmse_std
+    return average_rmse, rmse_std, all_curve_rmses
     
