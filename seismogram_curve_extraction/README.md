@@ -32,6 +32,5 @@ seismogram_curve_extraction/
 ├── tests/                       # Tests for the project
 ├── notebooks/                   # Jupyter notebooks for exploration and experiments
 ├── docs/                        # Documentation
-├── config/                      # Configuration files
 ├── requirements.txt             # Dependencies
 └── README.md                    # Project overview
