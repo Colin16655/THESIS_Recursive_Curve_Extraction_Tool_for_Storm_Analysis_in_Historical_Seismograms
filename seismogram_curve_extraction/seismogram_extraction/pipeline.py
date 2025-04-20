@@ -37,6 +37,9 @@ class ImageSequenceDataset(Dataset):
         # Load the image
         image = cv2.imread(self.image_files[idx], cv2.IMREAD_GRAYSCALE)
         image = image.astype(np.float32) / 255.0  # Normalize to [0, 1]
+        # invert the image
+        image = invert_image(image)
+        
         
         # Load the ground truth
         gt = np.load(self.gt_files[idx])
@@ -66,15 +69,6 @@ plt.rcParams['legend.fontsize'] = 11
 plt.rcParams['legend.loc'] = 'upper right'
 plt.rcParams['axes.titlesize'] = 12
 
-# Get the absolute path of the project root
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-# Add the project root to sys.path
-sys.path.append(project_root)
-
-from seismogram_extraction.filters.weighted_kalman_filter import WeightedKalmanFilter
-# from seismogram_extraction.filters.hungarian_kalman_filter_kalman_filter import HungarianKalmanFilter
-# from seismogram_extraction.models.lrnn import LinearRNN
-
 def compute_rmse(pred, true):
     """
     Compute RMSE between predicted and true values.
@@ -82,7 +76,8 @@ def compute_rmse(pred, true):
     return np.sqrt(np.mean((pred - true) ** 2))
 
 def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
-                    processing_method, P_0, batch_size=4, save=True, step=1):
+                    processing_method, P_0, batch_size=4, save=True, step=1,
+                    labels=["Velocity", "Acceleration"], omega_0=None):
     """
     Evaluate the performance of a processing method on a dataset.
 
@@ -104,8 +99,13 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
         N_traces = ground_truths.shape[1]
         batch_size = len(images)
 
-        X_0 = np.zeros((batch_size, N_traces, len(processing_method.A)))
-        X_0[:, :, 0] = ground_truths[:, :, 0].numpy()
+        X_0 = np.zeros((batch_size, N_traces, processing_method.H.shape[-1]))
+        X_0[:, :, 0] = ground_truths[:, :, 0].numpy()  # position (p)
+        # if sine aware HEKF
+        if omega_0 is not None:
+            X_0[:, :, 2] = omega_0
+            X_0[:, :, 3] = ground_truths[:, :, 0].numpy()
+
         P_0_extended = np.tile(P_0, (batch_size, N_traces, 1, 1))
 
         X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, step=step)
@@ -113,19 +113,13 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
 
         for i in range(batch_size):
             pred_positions = X_batch_pred[i, :, :, 0]
-            pred_velocities = X_batch_pred[i, :, :, 1]
-            pred_accelerations = X_batch_pred[i, :, :, 2]
-
             std_positions = np.sqrt(P_batch_pred[i, :, :, 0, 0])
-            std_velocities = np.sqrt(P_batch_pred[i, :, :, 1, 1])
-            std_accelerations = np.sqrt(P_batch_pred[i, :, :, 2, 2])
-
             true_positions = ground_truths[i, ::step, :]  # shape (T, N_traces)
 
             if save and plot_counter < 5:
                 fig, ax = plt.subplots(figsize=(8, 4))
                 t_steps = np.arange(0, images.shape[-1])[::step]
-                ax.imshow(images[i, 0], cmap='gray')
+                ax.imshow(images[i, 0].max() - images[i, 0], cmap='gray')
 
             for j in range(pred_positions.shape[1]):
                 rmse = compute_rmse(pred_positions[:, j], true_positions[:, j])
@@ -147,27 +141,23 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
 
                 T = pred_positions.shape[0]
                 t = np.arange(T)
-                fig, axes = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
+                fig, axes = plt.subplots(len(labels), 1, figsize=(8, 4), sharex=True)
+                
+                for l in range(len(labels)):
+                    for j in range(N_traces):
+                        pred = X_batch_pred[i, :, :, l+1]
+                        std_pred = np.sqrt(P_batch_pred[i, :, :, l+1, l+1])
 
-                for j in range(N_traces):
-                    axes[0].plot(t, pred_velocities[:, j], label=f'Trace {j+1}')
-                    axes[0].fill_between(t,
-                                         pred_velocities[:, j] - std_velocities[:, j],
-                                         pred_velocities[:, j] + std_velocities[:, j],
-                                         alpha=0.3)
-                    axes[1].plot(t, pred_accelerations[:, j], label=f'Trace {j+1}')
-                    axes[1].fill_between(t,
-                                         pred_accelerations[:, j] - std_accelerations[:, j],
-                                         pred_accelerations[:, j] + std_accelerations[:, j],
-                                         alpha=0.3)
+                        axes[l].plot(t, pred[:, j], label=f'Trace {j+1}')
+                        axes[l].fill_between(t,
+                                            pred[:, j] - std_pred[:, j],
+                                            pred[:, j] + std_pred[:, j],
+                                            alpha=0.3)
 
-                axes[0].set_xlim(0, T)
-                axes[1].set_xlim(0, T)
-                axes[0].set_ylabel('Velocity')
-                axes[1].set_ylabel('Acceleration')
-                axes[1].set_xlabel('Time step')
-                axes[0].legend(markerscale=5)
-                axes[1].legend(markerscale=5)
+                    axes[l].set_xlim(0, T)
+                    axes[l].legend(markerscale=5)
+                    axes[l].set_ylabel(labels[l])
+                axes[-1].set_xlabel('Time step')
 
                 fig.tight_layout()
                 fig.savefig(f"{output_folder_path}/states_{batch_idx}_{i}.pdf",

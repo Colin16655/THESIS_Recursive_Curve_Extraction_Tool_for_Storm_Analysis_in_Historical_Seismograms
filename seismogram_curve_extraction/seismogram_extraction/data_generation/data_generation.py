@@ -342,7 +342,7 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
     l_margin = 0 # must be 0 otherwise GT are not corect 
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     dt = 0.3 / 4
     T = 86400*0.003
 
-    num_images = 20
+    num_images = 1000 
 
     # Create generator with custom parameters
     generator = SeismogramGenerator(num_traces=2) # USER
@@ -368,8 +368,8 @@ if __name__ == "__main__":
         directory = r"seismogram_extraction\data_generation\results"
         
         if option == 0:
-            folder_path = sanitize_filename(r"\sines_long")
-            directory_data = r"data_2_traces\sines_long"
+            folder_path = sanitize_filename(r"\sines")
+            directory_data = r"data_2_traces\sines"
         if option == 1:
             folder_path = sanitize_filename(r"\{}_{}_{}_{}_{}_{}_{}_{}_{}".format(network,
                                                                     station,
