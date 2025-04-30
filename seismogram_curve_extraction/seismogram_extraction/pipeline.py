@@ -77,7 +77,7 @@ def compute_rmse(pred, true):
 
 def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                     processing_method, P_0, batch_size=4, save=True, step=1,
-                    labels=["Velocity", "Acceleration"], omega_0=None):
+                    labels=["Velocity", "Acceleration"], omega_0=None, phi_0=None):
     """
     Evaluate the performance of a processing method on a dataset.
 
@@ -99,13 +99,16 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
         N_traces = ground_truths.shape[1]
         batch_size = len(images)
 
-        X_0 = np.zeros((batch_size, N_traces, processing_method.H.shape[-1]))
+        X_0 = np.zeros((batch_size, N_traces, processing_method.Q.shape[-1]))
         X_0[:, :, 0] = ground_truths[:, :, 0].numpy()  # position (p)
         # if sine aware HEKF
-        if omega_0 is not None:
-            X_0[:, :, 2] = omega_0
-            X_0[:, :, 3] = ground_truths[:, :, 0].numpy()
-
+        if phi_0 is None:
+            if omega_0 is not None:
+                X_0[:, :, 2] = omega_0
+                X_0[:, :, 3] = ground_truths[:, :, 0].numpy()
+        if phi_0 is not None:
+            X_0[:, :, 1] = omega_0
+            X_0[:, :, 2] = phi_0
         P_0_extended = np.tile(P_0, (batch_size, N_traces, 1, 1))
 
         X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, step=step)
@@ -142,7 +145,7 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                 T = pred_positions.shape[0]
                 t = np.arange(T)
                 fig, axes = plt.subplots(len(labels), 1, figsize=(8, 4), sharex=True)
-                
+                print("rrrr", labels)
                 for l in range(len(labels)):
                     for j in range(N_traces):
                         pred = X_batch_pred[i, :, :, l+1]

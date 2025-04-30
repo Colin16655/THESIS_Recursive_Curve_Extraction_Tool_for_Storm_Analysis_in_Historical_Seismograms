@@ -10,14 +10,14 @@ def check_matrix_validity(matrix, name="Matrix"):
     return True
 
 class HungarianExtendedKalmanFilter:
-    def __init__(self, H, Q, R, dt, f_function, jacobian_function):
+    def __init__(self, build_H, Q, R, dt, f_function, jacobian_function):
         """
         f_function: callable
             Nonlinear state transition function f(x, dt)
         jacobian_function: callable
             Function to compute the Jacobian A_k = df/dx evaluated at x and dt
         """
-        self.H = H  # Measurement matrix
+        self.build_H = build_H  # Measurement matrix
         self.Q = Q  # Process noise covariance
         self.R = R  # Measurement noise covariance
         self.dt = dt
@@ -28,75 +28,29 @@ class HungarianExtendedKalmanFilter:
         dt = self.dt
         if len(X.shape) == 1:
             A = self.compute_A(X, dt)
-            # if not check_matrix_validity(A, name="Jacobian A"): print("A is invalid")
             X = self.f(X, dt)
             P = A @ P @ A.T + self.Q
-            # Prevent overflows or invalid entries in covariance
-            # if not np.all(np.isfinite(P)):
-                # print("[WARN] Non-finite values in predicted covariance — resetting to identity.")
-                # P = np.eye(P.shape[0]) * 100
-            X[2] = np.clip(X[2], -10, 10)  # Clip omega to prevent explosion
         else:
             for i in range(X.shape[0]):
                 A = self.compute_A(X[i], dt)
-                # if not check_matrix_validity(A, name="Jacobian A"): print("A is invalid")
                 X[i] = self.f(X[i], dt)
                 P[i] = A @ P[i] @ A.T + self.Q
-                X[i, 2] = np.clip(X[i, 2], -10, 10)  # Clip omega to prevent explosion
-                # if not np.all(np.isfinite(P[i])):
-                    # print(f"[WARN] Covariance for trace {i} is invalid — resetting.")
-                    # print(X[i])
-                    # print(f"Covari:ance matrix: {P[i]}")
-                    # P[i] = np.eye(P[i].shape[0]) * 100
-
-        # Optionally clip entries to prevent explosion
-        # P = np.clip(P, -1e8, 1e8)
-        # if not check_matrix_validity(X, name="Predicted state"): print("X is invalid in predict")
-        # if not check_matrix_validity(P, name="Predicted covariance"): print("P is invalid in predict")
-        # if np.max(np.abs(P)) > 1e8: 
-        #     P = np.clip(P, -1e8, 1e8)
-        #     # print("predict P is invalid")            
-        # if np.max(np.abs(X)) > 100: 
-        #     X = np.clip(X, -100, 100)
-        #     # print("predict X is invalid")
-
         return X, P
     
     def update(self, X, P, Z):
-        H, R = self.H, self.R
+        H = self.build_H(X)
+        R = self.R
         if len(X.shape) == 1:
             S = H @ P @ H.T + R
-            # Avoid invalid S
-            # if not np.all(np.isfinite(S)) or np.linalg.cond(S) > 1e12:
-            #     print("[WARN] Invalid S matrix — skipping update.")
-            #     return X, P  # skip update, return prediction
             K = P @ H.T @ np.linalg.inv(S)
             X = X + K @ (Z - H @ X)
             P = P - K @ H @ P
-            X[2] = np.clip(X[2],-10, 10)  # Clip omega to prevent explosion
         else:
             for o in range(X.shape[0]):
                 S = H @ P[o] @ H.T + R
-                # Avoid invalid S
-                # if not np.all(np.isfinite(S)) or np.linalg.cond(S) > 1e12:
-                #     print("[WARN] Invalid S matrix — skipping update.")
-                #     return X, P  # skip update, return prediction
                 K = P[o] @ H.T @ np.linalg.inv(S)
                 X[o] = X[o] + K @ (Z[o] - H @ X[o])
                 P[o] = P[o] - K @ H @ P[o]
-                X[o, 2] = np.clip(X[o, 2], -10, 10)  # Clip omega to prevent explosion
-
-        # Clamp or clean result
-        # P = np.clip(P, -1e8, 1e8)
-        # P = np.nan_to_num(P, nan=1e6, posinf=1e6, neginf=1e6)
-
-        # if not check_matrix_validity(X, name="Updated state"): print("X is invalid in update")  
-        # if np.max(np.abs(P)) > 1e8: 
-            # P = np.clip(P, -1e8, 1e8)
-            # print("update P is invalid")
-        # if np.max(np.abs(X)) > 1e5: 
-            # X = np.clip(X, -100, 100)
-            # print("update X is invalid")
         return X, P
 
     def process_sequence(self, sequence, X_0, P_0, step=5):
@@ -130,9 +84,6 @@ class HungarianExtendedKalmanFilter:
             image_stepped = image[:, ::step]
 
             for k in tqdm(range(1, image_stepped.shape[1]), desc=f"Processing columns"):
-                # print("X: ", X)
-                # print("P: ", P)
-                # print()
                 col = image_stepped[:, k] # find the non 0 value pixels, with a given treshold
                 measurements = (np.where(col > tresh)[0]).astype(np.float64)
                 centroids, stds = self.cluster_and_compute_stats(measurements, spacing=1)
