@@ -1,42 +1,67 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from tqdm import tqdm
 
-class HungarianKalmanFilter:
-    def __init__(self, F, H, Q, R):
-        self.F = F  # State transition matrix
-        self.H = H  # Observation matrix
+def check_matrix_validity(matrix, name="Matrix"):
+    if not np.all(np.isfinite(matrix)):
+        print(f"[ERROR] {name} contains invalid values (NaN or Inf)")
+        print(matrix)
+        return False
+    return True
+
+class HungarianExtendedKalmanFilter:
+    def __init__(self, build_H, Q, R, dt, f_function, h_function, jacobian_function):
+        """
+        f_function: callable
+            Nonlinear state transition function f(x, dt)
+        jacobian_function: callable
+            Function to compute the Jacobian A_k = df/dx evaluated at x and dt
+        """
+        self.build_H = build_H  # Measurement matrix
         self.Q = Q  # Process noise covariance
         self.R = R  # Measurement noise covariance
-    
-    def predict(self):
-        X, P, F, Q = self.X, self.P, self.F, self.Q
-        # check if X has 1 or 2 dimension(s)
+        self.dt = dt
+        self.f = f_function
+        self.h = h_function
+        self.compute_A = jacobian_function
+
+    def predict(self, X, P):
+        dt = self.dt
         if len(X.shape) == 1:
-            self.X = F @ X
-            self.P = F @ P @ F.T + Q
+            A = self.compute_A(X, dt)
+            X = self.f(X, dt)
+            P = A @ P @ A.T + self.Q
         else:
-            # multiple states in parallel
             for i in range(X.shape[0]):
-                self.X[i] = F @ X[i]
-                self.P[i] = F @ P[i] @ F.T + Q
-        return self.X, self.P
+                A = self.compute_A(X[i], dt)
+                X[i] = self.f(X[i], dt)
+                P[i] = A @ P[i] @ A.T + self.Q
+        return X, P
     
     def update(self, X, P, Z):
-        H, R = self.H, self.R
+        R = self.R
         if len(X.shape) == 1:
+            H = self.build_H(X, self.dt)
+            y_pred = self.h(X, self.dt)
             S = H @ P @ H.T + R
             K = P @ H.T @ np.linalg.inv(S)
-            X = X + K @ (Z - H @ X)
+            X = X + K @ np.array([Z - y_pred])
             P = P - K @ H @ P
         else:
-            for i in range(X.shape[0]):
-                S = H @ P[i] @ H.T + R
-                K = P[i] @ H.T @ np.linalg.inv(S)
-                X[i] = X[i] + K @ (Z[i] - H @ X[i])
-                P[i] = P[i] - K @ H @ P[i]
+            for o in range(X.shape[0]):
+                print("bbb")
+                H = self.build_H(X[o], self.dt)
+                y_pred = self.h(X[o], self.dt)
+                S = H @ P[o] @ H.T + R
+                K = P[o] @ H.T @ np.linalg.inv(S)
+                X[o] = X[o] + K @ np.array([Z[o] - y_pred])
+                P[o] = P[o] - K @ H @ P[o]
         return X, P
 
-    def process_sequence(self, sequence, X_0, P_0, step=1):
+    def compute_relative_position(self, x):
+        return x[:, 0] * np.sin(x[:, 2])
+
+    def process_sequence(self, sequence, X_0, P_0, meanlines, step=1):
         """
         Processes a sequence of inputs as if using an RNN. This function mimics an RNN behavior,
         where each time step input updates the state.
@@ -59,52 +84,41 @@ class HungarianKalmanFilter:
         P_results[:, 0, :, :, :] = P_0
         avg_N_components = X_results.shape[2]
         for i, batch in enumerate(sequence):
-            self.X = X_0[i]
-            self.P = P_0[i]
+            X = X_0[i]
+            P = P_0[i]
 
-            image = batch[0] 
+            image = batch[0]
             self.check_binary_image_background(image) # ! ensure the image background is 0 and foreground is 1
             tresh = 0.5
             image_stepped = image[:, ::step]
 
             for k in range(1, image_stepped.shape[1]):
                 col = image_stepped[:, k] # find the non 0 value pixels, with a given treshold
-
                 measurements = (np.where(col > tresh)[0]).astype(np.float64)
                 centroids, stds = self.cluster_and_compute_stats(measurements, spacing=1)
                 M = len(centroids)
-                if M == 0:
-                    # Predict
-                    X_w, P_w = self.predict()
-                    # Save the estimated position
-                    X_results[i, k, :, :] = X_w
-                    P_results[i, k, :, :, :] = P_w
-                    continue
-                else:
-                    # Predict
-                    X_w, P_w = self.predict()  
-                    cost_matrix = self.compute_cost_matrix(X_w[:, 0], centroids)
+                
+                # Predict
+                X, P = self.predict(X, P)
 
-                    # Handle cases where M != N by padding the cost matrix
-                    max_dim = max(avg_N_components, M)
-                    padded_cost_matrix = np.full((max_dim, max_dim), np.max(cost_matrix) + 999999999)  # Large penalty for unassigned
-                    padded_cost_matrix[:avg_N_components, :M] = cost_matrix
-                                
-                    row_ind, col_ind = linear_sum_assignment(padded_cost_matrix)
+                if len(centroids) > 0:
+                    positions = self.compute_relative_position(X)
+                    # print(positions.shape, positions)
+                    for p in range(X_0.shape[1]): positions[p] += meanlines[p]
+                    cost_matrix = self.compute_cost_matrix(positions, centroids)
+                    # Validate cost matrix
+                    if not np.all(np.isfinite(cost_matrix)):
+                        raise ValueError("Cost matrix contains NaN or Inf. Aborting assignment.")
+                    row_ind, col_ind = linear_sum_assignment(cost_matrix)
                                 
                     # Update
-                    X_weighted = np.copy(X_w)
-                    P_weighted = np.copy(P_w)
                     for l, j in zip(row_ind, col_ind):
-                        if l < avg_N_components and j < M:  # Ignore padded assignments
-                            if padded_cost_matrix[l, j] < 50: # Test with and without this condition
-                                X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], centroids[j])
-                    self.X = np.copy(X_weighted)
-                    self.P = np.copy(P_weighted)
-                    
+                        if l < avg_N_components and j < M:
+                            if cost_matrix[l, j] < 50:
+                                X[l], P[l] = self.update(X[l], P[l], centroids[j]-meanlines[l])
                 # Save
-                X_results[i, k, :, :] = X_weighted
-                P_results[i, k, :, :, :] = P_weighted
+                X_results[i, k, :, :] = X
+                P_results[i, k, :, :, :] = P
         return X_results[:, :k+1], P_results[:, :k+1]
     
     @staticmethod
@@ -125,6 +139,7 @@ class HungarianKalmanFilter:
             raise ValueError(f"Image must have more background (pixels < 0.5) than foreground (pixels > 0.5). "
                             f"Found {num_background} background vs {num_foreground} foreground pixels.")   
 
+    
     @staticmethod
     def cluster_and_compute_stats(measurements, spacing=1):
         """

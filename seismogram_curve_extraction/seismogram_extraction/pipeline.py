@@ -7,7 +7,7 @@ from tqdm import tqdm
 from itertools import product
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 # from sklearn.metrics import mean_squared_error
 
 import os
@@ -55,6 +55,25 @@ def create_dataloader(image_folder_path, gt_folder_path, batch_size=16, shuffle=
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     return dataloader
 
+
+def create_dataloader(image_folder_path, gt_folder_path, batch_size=16, shuffle=True, num_workers=4,
+                      split=False, val_ratio=0.2):
+    dataset = ImageSequenceDataset(image_folder_path, gt_folder_path)
+
+    if split:
+        val_size = int(len(dataset) * val_ratio)
+        train_size = len(dataset) - val_size
+
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        return train_loader, val_loader
+
+    # Default behavior: return a single dataloader
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    return dataloader
+
 def invert_image(image):
     return image.max() - image
 
@@ -77,7 +96,8 @@ def compute_rmse(pred, true):
 
 def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                     processing_method, P_0, batch_size=4, save=True, step=1,
-                    labels=["Velocity", "Acceleration"], omega_0=None, phi_0=None):
+                    labels=["Velocity", "Acceleration"], a_0=None, omega_0=None, phi_0=None, forum=False,
+                    meanlines=None):
     """
     Evaluate the performance of a processing method on a dataset.
 
@@ -109,14 +129,27 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
         if phi_0 is not None:
             X_0[:, :, 1] = omega_0
             X_0[:, :, 2] = phi_0
-        P_0_extended = np.tile(P_0, (batch_size, N_traces, 1, 1))
+        if forum:
+            X_0[:, :, 0] = a_0
+            X_0[:, :, 1] = omega_0
+            X_0[:, :, 2] = phi_0
 
-        X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, step=step)
+        P_0_extended = np.tile(P_0, (batch_size, N_traces, 1, 1))
+        if forum:         
+            X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, meanlines, step=step)
+        else:
+            X_batch_pred, P_batch_pred = processing_method.process_sequence(images.numpy(), X_0, P_0_extended, step=step)
         ground_truths = ground_truths.numpy().transpose(0, 2, 1)
 
         for i in range(batch_size):
-            pred_positions = X_batch_pred[i, :, :, 0]
-            std_positions = np.sqrt(P_batch_pred[i, :, :, 0, 0])
+            if forum:
+                pred_positions = X_batch_pred[i, :, :, 0] * np.sin(X_batch_pred[i, :, :, 2]) 
+                for p in range(len(meanlines)):
+                    pred_positions[:, p] += meanlines[p]
+                std_positions = np.zeros_like(X_batch_pred[i, :, :, 0])
+            else:
+                pred_positions = X_batch_pred[i, :, :, 0]
+                std_positions = np.sqrt(P_batch_pred[i, :, :, 0, 0])
             true_positions = ground_truths[i, ::step, :]  # shape (T, N_traces)
 
             if save and plot_counter < 5:
@@ -145,9 +178,10 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                 T = pred_positions.shape[0]
                 t = np.arange(T)
                 fig, axes = plt.subplots(len(labels), 1, figsize=(8, 4), sharex=True)
-                print("rrrr", labels)
-                for l in range(len(labels)):
+                for ll in range(len(labels)):
                     for j in range(N_traces):
+                        if forum: l = ll - 1
+                        else: l = ll
                         pred = X_batch_pred[i, :, :, l+1]
                         std_pred = np.sqrt(P_batch_pred[i, :, :, l+1, l+1])
 

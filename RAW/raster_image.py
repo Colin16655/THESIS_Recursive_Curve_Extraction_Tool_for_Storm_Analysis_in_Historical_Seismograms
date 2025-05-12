@@ -319,7 +319,7 @@ if __name__ == "__main__":
     ]
 
     # Hyperparameters
-    factor = 10  # Downsample sclicing factor
+    factor = 3  # Downsample sclicing factor
 
     # Load, resize, and display each image
     for image_file in image_files:

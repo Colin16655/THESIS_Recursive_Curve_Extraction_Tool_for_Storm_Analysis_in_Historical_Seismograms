@@ -9,6 +9,16 @@ import os
 import math
 import cv2
 
+plt.rcParams['xtick.labelsize'] = 11
+plt.rcParams['ytick.labelsize'] = 11
+plt.rcParams['axes.labelsize'] = 11
+plt.rcParams['axes.spines.top'] = False
+plt.rcParams['axes.spines.right'] = False
+plt.rcParams['axes.grid'] = True
+plt.rcParams['legend.fontsize'] = 11
+plt.rcParams['legend.loc'] = 'upper right'
+plt.rcParams['axes.titlesize'] = 12
+
 class RasterImage:
     def __init__(self, file_path, batch_size=(100, 100)):
         """
@@ -121,7 +131,7 @@ class RasterImage:
         
     #     return tensor_image
 
-    def apply_otsu_thresholding(self, mode='global', params_local=None, sens_analysis=False, save=False, directory=".", show=False, save_name="global_otsu_all"):
+    def apply_otsu_thresholding(self, mode='global', params_local=None, sens_analysis=False, save=False, directory=".", directory_hist=".", show=False, save_name="global_otsu_all.jpg"):
         """
         Apply Otsu's thresholding globally or locally to the sliced image.
 
@@ -191,6 +201,23 @@ class RasterImage:
                 cv2.imwrite(full_path, self.binary_image)
                 print(f"Figure saved as '{full_path}'.")
 
+                # Plot and save histogram with threshold overlay
+                plt.figure(figsize=(6, 4)) 
+                plt.hist(self.sliced_image.ravel(), bins=np.max(self.sliced_image) + 1,
+                range=(np.min(self.sliced_image), np.max(self.sliced_image)))
+                plt.axvline(thresh, color='red', linestyle='--', linewidth=2, label=r'$\theta$ = {}'.format(thresh))
+                plt.title('Histogram of Pixel Intensities (Global Otsu)')
+                plt.xlabel('Pixel Intensity')
+                plt.ylabel('Frequency')
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+
+                hist_path = os.path.join(directory_hist, "global_otsu_histogram.pdf")
+                plt.savefig(hist_path, dpi=300, bbox_inches='tight')
+                print(f"Histogram saved as '{hist_path}'.")
+                plt.close()
+
         elif mode == 'local':
             if params_local is None:
                 raise ValueError("params_local must be specified for local thresholding.")
@@ -230,24 +257,42 @@ class RasterImage:
         if img_to_display is None:
             raise ValueError(f"{image_type} not available. Please ensure it has been created.")
 
-        # Create a figure and axis
-        fig, ax = plt.subplots()
-        
-        # Display the selected image
-        ax.imshow(img_to_display, cmap='gray')
-        # ax.set_title(f"{os.path.basename(self.file_path)} - {image_type}")
-        ax.axis('off')  # Hide the axis
+        if image_type == 'binary_image':
+            plt.figure(figsize=(12, 5))
+            # plt.imshow(img_to_display.max()-img_to_display, cmap='gray', origin='lower')
+            plt.imshow(img_to_display, cmap='gray', origin='lower')
+            plt.xlabel(r"time $k$ [pixel]")
+            plt.ylabel(r"position $p$ [pixel]")
+            plt.grid(False)
+            plt.title(f"Binarized {os.path.basename(self.file_path).removesuffix('.tif')} raster image")
 
-        # Optionally save the figure as a PDF
-        if save:
-            os.makedirs(directory, exist_ok=True)  # Create directory if it doesn't exist
-            full_path = os.path.join(directory, filename)
-            fig.savefig(full_path, bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save with tight layout
-            print(f"Figure saved as '{full_path}'.")
+            # Optionally save the figure as a PDF
+            if save:
+                os.makedirs(directory, exist_ok=True)  # Create directory if it doesn't exist
+                full_path = os.path.join(directory, filename)
+                plt.savefig(full_path, bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save with tight layout
+                print(f"Figure saved as '{full_path}'.")
 
-        # Show the figure
-        if show: plt.show()
-        plt.close(fig)
+
+        else:
+            # Create a figure and axis
+            fig, ax = plt.subplots()
+            
+            # Display the selected image
+            ax.imshow(img_to_display, cmap='gray', origin='lower')
+            # ax.set_title(f"{os.path.basename(self.file_path)} - {image_type}")
+            # ax.axis('off')  # Hide the axis
+
+            # Optionally save the figure as a PDF
+            if save:
+                os.makedirs(directory, exist_ok=True)  # Create directory if it doesn't exist
+                full_path = os.path.join(directory, filename)
+                fig.savefig(full_path, bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save with tight layout
+                print(f"Figure saved as '{full_path}'.")
+
+            # Show the figure
+            if show: plt.show()
+            plt.close(fig)
 
     def plot_histogram(self, show=False, image_type: str = 'sliced_image', save: bool = False, filename: str = "histogram.png", directory: str = ".") -> None:
         """Plot the intensity histogram of the specified image and optionally save it.
@@ -335,7 +380,7 @@ if __name__ == "__main__":
                 raster_image.plot_histogram(save=True, filename="sliced_histogram.pdf", directory=f"output/{os.path.basename(image_file).removesuffix('.tif')}")
 
                 # Apply global Otsu thresholding
-                raster_image.apply_otsu_thresholding(save=True, directory=source_directory, save_name=os.path.basename(image_file).removesuffix('.tif') + "_binary.jpg")
+                raster_image.apply_otsu_thresholding(save=True, directory=source_directory, directory_hist=f"output/{os.path.basename(image_file).removesuffix('.tif')}", save_name=os.path.basename(image_file).removesuffix('.tif') + "_binary.jpg")
 
                 # save the image
                 # fig.savefig(full_path, format='pdf', bbox_inches='tight', pad_inches=0.1, dpi=300)  # Save as PDF with tight layout
