@@ -68,7 +68,8 @@ class SeismogramGenerator:
                  end_time="2024-01-14T00:12:00", 
                  batch_length=int(86400/4),
                  bandwidth_0=1,
-                 bandwidth=0.1):
+                 bandwidth=0.1,
+                 option=1):
         """
         Initialize the seismogram generator.
 
@@ -97,28 +98,28 @@ class SeismogramGenerator:
                                                                                                         batch_length, 
                                                                                                         bandwidth_0,
                                                                                                         bandwidth)) + ".pkl"
-        
-        if os.path.exists(filepath):
-            print(f"\nFile {filepath} exists. Loading precomputed PDFs...")
+        if option ==1:
+            if os.path.exists(filepath):
+                print(f"\nFile {filepath} exists. Loading precomputed PDFs...")
 
-            self.analysis = SeismogramAnalysis.load_analysis(filepath)
-        else:
-            print(f"\nFile {filepath} not found. Computing PDFs...")
+                self.analysis = SeismogramAnalysis.load_analysis(filepath)
+            else:
+                print(f"\nFile {filepath} not found. Computing PDFs...")
 
-            self.analysis = SeismogramAnalysis(network=network, 
-                                          station=station, 
-                                          location=location, 
-                                          channel=channel, 
-                                          start_time=start_time, 
-                                          end_time=end_time,
-                                          batch_length=batch_length) # 86400 for 1 day batch length
-            # Process the seismogram in batches and compute the PDFs
-            self.analysis.process_batches(bandwidth_0=bandwidth_0, bandwidth=bandwidth)
-            
-            # Save the results for future use
-            self.analysis.save_analysis(filepath)    
+                self.analysis = SeismogramAnalysis(network=network, 
+                                            station=station, 
+                                            location=location, 
+                                            channel=channel, 
+                                            start_time=start_time, 
+                                            end_time=end_time,
+                                            batch_length=batch_length) # 86400 for 1 day batch length
+                # Process the seismogram in batches and compute the PDFs
+                self.analysis.process_batches(bandwidth_0=bandwidth_0, bandwidth=bandwidth)
+                
+                # Save the results for future use
+                self.analysis.save_analysis(filepath)    
 
-            print(f"\nPDFs computed and saved to {filepath}")
+                print(f"\nPDFs computed and saved to {filepath}")
 
     def resample_signal(self, dt, T, seed=42):
         """Resample the signal in the Fourier domain from the PDFs of A_k and B_k.
@@ -170,26 +171,30 @@ class SeismogramGenerator:
         # Generate frequency array
 
         # Generate time vector
-        self.seismo_gt.t = np.arange(0, T, dt) / T * np.pi
+        self.seismo_gt.t = np.arange(0, T, dt) 
         t = self.seismo_gt.t
 
-        num_samples = len(self.seismo_gt.t)
+        num_samples = len(t)
 
-        # Compute the resampled signal
+        # Preallocate signal array
         self.seismo_gt.signal = np.zeros((num_signals, num_samples))
-        
-        # Randomly sample frequencies and phase shifts
-        frequencies = np.random.uniform(1, 20, num_signals)  # Random frequencies between 1 and 20 Hz
-        phase_shifts = np.random.uniform(0, 2 * np.pi, num_signals)  # Random phase shifts between 0 and 2*pi
 
+        # Randomly sample two frequencies and phase shifts per trace
+        freqs_1 = np.random.uniform(0.009, 0.099, num_signals)
+        phases_1 = np.random.uniform(0, 2 * np.pi, num_signals)
 
-        # Generate sine waves and store them in the pre-allocated array
+        freqs_2 = np.random.uniform(0.009, 0.099, num_signals)
+        phases_2 = np.random.uniform(0, 2 * np.pi, num_signals)
+
+        # Generate and sum sine waves
         for i in range(num_signals):
-            self.seismo_gt.signal[i] = np.sin(frequencies[i] * t + phase_shifts[i]) 
+            sine1 = np.sin(2 * np.pi * freqs_1[i] * t + phases_1[i])
+            sine2 = np.sin(2 * np.pi * freqs_2[i] * t + phases_2[i])
+            self.seismo_gt.signal[i] = 0.8*sine1 + 0.2*sine2
 
         return self.seismo_gt.signal
     
-    def generate_seismogram_raster(self, width=800, height=400, line_thickness=2, noise_level=0.1,
+    def generate_seismogram_raster(self, width=1000, height=315, line_thickness=2, noise_level=0.1,
                                 l_margin=50, r_margin=50, t_margin=50, b_margin=50, 
                                 overlap_percentage=0.2, color_mode='rgb', color_flag=False):
         """
@@ -350,14 +355,16 @@ if __name__ == "__main__":
     t_margin = 50
     b_margin = 50
     color_mode = 'bw'
+    width = 1000
 
-    dt = 0.3 / 4
-    T = 86400*0.003
+    dt = 0.2 # seconds
+    T = dt * width
 
-    num_images = 1000 
+    num_images = 20 
+    N_traces = 5
 
     # Create generator with custom parameters
-    generator = SeismogramGenerator(num_traces=2) # USER
+    generator = SeismogramGenerator(num_traces=N_traces, option=option) # USER
 
     for i, overlap in enumerate(np.linspace(0.0, 0.5, 10)):  # Different overlap levels
         print(f"\n\nOverlap percentage: {overlap}")
@@ -369,7 +376,7 @@ if __name__ == "__main__":
         
         if option == 0:
             folder_path = sanitize_filename(r"\sines")
-            directory_data = r"data_2_traces\sines"
+            directory_data = f"data_{N_traces}_traces\sines"
         if option == 1:
             folder_path = sanitize_filename(r"\{}_{}_{}_{}_{}_{}_{}_{}_{}".format(network,
                                                                     station,
@@ -380,7 +387,7 @@ if __name__ == "__main__":
                                                                     batch_length,
                                                                     bandwidth_0,
                                                                     bandwidth))
-            directory_data = r"data_2_traces\resampled" + folder_path
+            directory_data = f"data_{N_traces}_traces\resampled" + folder_path
         os.makedirs(folder_path, exist_ok=True)
         os.makedirs(directory_data, exist_ok=True)
         filepath = sanitize_filename(directory + folder_path + r"\{}_{}_{}_{}_{}_{}_{}_{}\seismo_gt".format(l_margin,
@@ -406,7 +413,7 @@ if __name__ == "__main__":
             else:
                 raise ValueError("Invalid option. Choose 0 or 1.")
 
-            seismogram_image = generator.generate_seismogram_raster(width=800, height=400, l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
+            seismogram_image = generator.generate_seismogram_raster(width=1000, height=315, l_margin=l_margin, r_margin=r_margin, t_margin=t_margin, b_margin=b_margin, 
                                                                 overlap_percentage=overlap_percentage, color_mode=color_mode)
         
             # Save the results for future use

@@ -96,8 +96,7 @@ def compute_rmse(pred, true):
 
 def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                     processing_method, P_0, batch_size=4, save=True, step=1,
-                    labels=["Velocity", "Acceleration"], a_0=None, omega_0=None, phi_0=None, forum=False,
-                    meanlines=None):
+                    labels=["Velocity", "Acceleration"], a_0=None, omega_0=None, phi_0=None, forum=False):
     """
     Evaluate the performance of a processing method on a dataset.
 
@@ -116,6 +115,8 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
     plot_counter = 0
 
     for batch_idx, (images, ground_truths) in enumerate(dataloader):
+        if forum:
+            meanlines = np.array(ground_truths.mean(axis=2).mean(axis=0))
         N_traces = ground_truths.shape[1]
         batch_size = len(images)
 
@@ -130,7 +131,10 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
             X_0[:, :, 1] = omega_0
             X_0[:, :, 2] = phi_0
         if forum:
-            X_0[:, :, 0] = a_0
+            if a_0 == None:
+                X_0[:, :, 0] = ground_truths[:, :, 0].numpy() - meanlines
+            else:
+                X_0[:, :, 0] = a_0
             X_0[:, :, 1] = omega_0
             X_0[:, :, 2] = phi_0
 

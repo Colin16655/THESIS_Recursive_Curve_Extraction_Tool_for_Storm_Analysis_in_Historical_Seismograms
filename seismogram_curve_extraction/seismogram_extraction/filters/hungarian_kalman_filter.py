@@ -97,6 +97,7 @@ class HungarianKalmanFilter:
                     P_weighted = np.copy(P_w)
                     for l, j in zip(row_ind, col_ind):
                         if l < avg_N_components and j < M:  # Ignore padded assignments
+                            # if True:
                             if padded_cost_matrix[l, j] < 50: # Test with and without this condition
                                 X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], centroids[j])
                     self.X = np.copy(X_weighted)
