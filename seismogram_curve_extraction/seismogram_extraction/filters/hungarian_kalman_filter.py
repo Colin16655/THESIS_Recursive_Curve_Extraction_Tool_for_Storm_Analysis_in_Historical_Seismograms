@@ -36,7 +36,7 @@ class HungarianKalmanFilter:
                 P[i] = P[i] - K @ H @ P[i]
         return X, P
 
-    def process_sequence(self, sequence, X_0, P_0, step=1):
+    def process_sequence(self, sequence, X_0, P_0, step=1, collision_thresh = 8.0):
         """
         Processes a sequence of inputs as if using an RNN. This function mimics an RNN behavior,
         where each time step input updates the state.
@@ -100,6 +100,42 @@ class HungarianKalmanFilter:
                             # if True:
                             if padded_cost_matrix[l, j] < 50: # Test with and without this condition
                                 X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], centroids[j])
+
+                    # ###
+                    # # 1. Track assignments
+                    # assignments = {l: j for l, j in zip(row_ind, col_ind) if l < avg_N_components and j < M and padded_cost_matrix[l, j] < 50}
+                    # assigned_curves = set(assignments.keys())
+
+                    # # 2. Loop over all pairs to check for collision
+                    # for idx1 in range(avg_N_components):
+                    #     for idx2 in range(idx1 + 1, avg_N_components):
+                    #         pos1 = X_w[idx1, 0]
+                    #         pos2 = X_w[idx2, 0]
+                    #         dist = np.abs(pos1 - pos2)
+
+                    #         if dist < collision_thresh:
+                    #             assigned1 = idx1 in assignments
+                    #             assigned2 = idx2 in assignments
+
+                    #             # If only one of the two is assigned
+                    #             if assigned1 != assigned2:
+                    #                 # Pick the assigned one
+                    #                 if assigned1:
+                    #                     source_idx = idx1
+                    #                     target_idx = idx2
+                    #                 else:
+                    #                     source_idx = idx2
+                    #                     target_idx = idx1
+
+                    #                 measurement_idx = assignments[source_idx]
+                    #                 measurement = centroids[measurement_idx]
+
+                    #                 # Manually assign to the unassigned target
+                    #                 X_weighted[target_idx], P_weighted[target_idx] = self.update(
+                    #                     X_weighted[target_idx], P_weighted[target_idx], measurement
+                    #                 )
+                    # ###
+
                     self.X = np.copy(X_weighted)
                     self.P = np.copy(P_weighted)
                     

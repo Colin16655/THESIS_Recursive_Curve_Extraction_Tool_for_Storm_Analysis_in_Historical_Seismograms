@@ -229,7 +229,7 @@ class SeismogramGenerator:
                     else np.full((height, width), background_color, dtype=np.uint8)
         # Compute available height and max amplitude
         available_height = height - t_margin - b_margin
-        max_amplitude = (available_height / num_signals) / (1 - overlap_percentage)
+        max_amplitude = (available_height / num_signals) / (1 - overlap_percentage) # /2
 
         # Precompute vertical offsets
         vertical_offsets = np.linspace(t_margin + max_amplitude / 2, height - b_margin - max_amplitude / 2, num_signals)
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
     l_margin = 0 # must be 0 otherwise GT are not corect 
@@ -376,7 +376,7 @@ if __name__ == "__main__":
         
         if option == 0:
             folder_path = sanitize_filename(r"\sines")
-            directory_data = f"data_{N_traces}_traces\sines"
+            directory_data = r"data_{}_traces\sines".format(N_traces)
         if option == 1:
             folder_path = sanitize_filename(r"\{}_{}_{}_{}_{}_{}_{}_{}_{}".format(network,
                                                                     station,
@@ -387,7 +387,7 @@ if __name__ == "__main__":
                                                                     batch_length,
                                                                     bandwidth_0,
                                                                     bandwidth))
-            directory_data = f"data_{N_traces}_traces\resampled" + folder_path
+            directory_data = r"data_{}_traces\resampled".format(N_traces) + folder_path
         os.makedirs(folder_path, exist_ok=True)
         os.makedirs(directory_data, exist_ok=True)
         filepath = sanitize_filename(directory + folder_path + r"\{}_{}_{}_{}_{}_{}_{}_{}\seismo_gt".format(l_margin,
