@@ -51,6 +51,8 @@ class SeismogramGT:
     image = None
     t = None
     signal = None
+    velocity = None
+    acceleration = None
     init = False
     meta = {}   
 
@@ -178,6 +180,8 @@ class SeismogramGenerator:
 
         # Preallocate signal array
         self.seismo_gt.signal = np.zeros((num_signals, num_samples))
+        self.seismo_gt.velocity = np.zeros((num_signals, num_samples))
+        self.seismo_gt.acceleration = np.zeros((num_signals, num_samples))
 
         # Randomly sample two frequencies and phase shifts per trace
         freqs_1 = np.random.uniform(0.009, 0.099, num_signals)
@@ -188,9 +192,29 @@ class SeismogramGenerator:
 
         # Generate and sum sine waves
         for i in range(num_signals):
-            sine1 = np.sin(2 * np.pi * freqs_1[i] * t + phases_1[i])
-            sine2 = np.sin(2 * np.pi * freqs_2[i] * t + phases_2[i])
-            self.seismo_gt.signal[i] = 0.8*sine1 + 0.2*sine2
+            f1, f2 = freqs_1[i], freqs_2[i]
+            phi1, phi2 = phases_1[i], phases_2[i]
+
+            omega1 = 2 * np.pi * f1
+            omega2 = 2 * np.pi * f2
+
+            # Signal
+            s1 = np.sin(omega1 * t + phi1)
+            s2 = np.sin(omega2 * t + phi2)
+            signal = 0.8 * s1 + 0.2 * s2
+            self.seismo_gt.signal[i] = signal
+
+            # Velocity (first derivative)
+            v1 = omega1 * np.cos(omega1 * t + phi1)
+            v2 = omega2 * np.cos(omega2 * t + phi2)
+            velocity = 0.8 * v1 + 0.2 * v2
+            self.seismo_gt.velocity[i] = velocity
+
+            # Acceleration (second derivative)
+            a1 = -omega1**2 * np.sin(omega1 * t + phi1)
+            a2 = -omega2**2 * np.sin(omega2 * t + phi2)
+            acceleration = 0.8 * a1 + 0.2 * a2
+            self.seismo_gt.acceleration[i] = acceleration
 
         return self.seismo_gt.signal
     
@@ -247,22 +271,32 @@ class SeismogramGenerator:
 
         # Prepare ground truth storage
         self.GTs = np.zeros((num_signals, background.shape[1]))
+        self.GTs_vel = np.zeros((num_signals, background.shape[1]))
+        self.GTs_acc = np.zeros((num_signals, background.shape[1]))
 
         for i, signal in enumerate(signals):
+            original_signal = signal.copy()
             # Normalize and scale signal
             signal_mean = np.mean(signal)
             signal_max = np.max(np.abs(signal))
             signal = (signal - signal_mean) / signal_max
             scaled_signal = (max_amplitude / 2) * signal + vertical_offsets[num_signals - 1 - i]
 
+            # also scale signal velocity and acceleration
+            self.GTs_vel[i] = (self.seismo_gt.velocity[i] * (max_amplitude / 2)) / signal_max
+            self.GTs_acc[i] = (self.seismo_gt.acceleration[i] * (max_amplitude / 2)) / signal_max
+
             # Generate coordinates efficiently
             x_coords = np.linspace(0, available_width - 1, background.shape[1]).astype(np.int32) + horizontal_offsets
-            y_coords = np.clip(scaled_signal.astype(np.int32), 0, height - 1)  # Ensure bounds
+            y_coords = np.clip(scaled_signal, 0, height - 1)  # Ensure bounds
+            if not np.array_equal(y_coords, scaled_signal): raise ValueError("y_coords should be equal to scaled_signal")
 
             # Crop x_coords and y_coords to background.shape[1]
             y_coords = y_coords[:background.shape[1]]
             self.GTs[i] = height - y_coords
 
+            # Discretize
+            y_coords = y_coords.astype(np.int32)
             # Convert to OpenCV polyline format
             pts = np.column_stack((x_coords, height - y_coords))
 
@@ -304,6 +338,8 @@ class SeismogramGenerator:
         if filepath_npy is not None:
             # save the image in npy format
             np.save(filepath_npy, self.GTs)
+            np.save(filepath_npy.removesuffix('.npy') + "_vel.npy", self.GTs_vel)
+            np.save(filepath_npy.removesuffix('.npy') + "_acc.npy", self.GTs_acc)
 
     @staticmethod
     def load_analysis(filepath):
@@ -347,7 +383,7 @@ if __name__ == "__main__":
     bandwidth = 0.1  # Set the bandwidth for KDE (None for automatic selection) 
 
     ### USER
-    option = 1 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
+    option = 0 # 0: Generate seismogram from sine and cosine waves, 1: Generate seismogram from PDFs
     ###
 
     l_margin = 0 # must be 0 otherwise GT are not corect 
@@ -361,7 +397,7 @@ if __name__ == "__main__":
     T = dt * width
 
     num_images = 20 
-    N_traces = 5
+    N_traces = 2
 
     # Create generator with custom parameters
     generator = SeismogramGenerator(num_traces=N_traces, option=option) # USER

@@ -157,9 +157,9 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
             true_positions = ground_truths[i, ::step, :]  # shape (T, N_traces)
 
             if save and plot_counter < 5:
-                fig, ax = plt.subplots(figsize=(8, 4))
+                fig, ax = plt.subplots(figsize=(4.5, 2.5))
                 t_steps = np.arange(0, images.shape[-1])[::step]
-                ax.imshow(images[i, 0].max() - images[i, 0], cmap='gray')
+                ax.imshow(images[i, 0].max() - images[i, 0], cmap='gray', origin='lower')
 
             for j in range(pred_positions.shape[1]):
                 rmse = compute_rmse(pred_positions[:, j], true_positions[:, j])
@@ -173,7 +173,10 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                                     alpha=0.3)
 
             if save and plot_counter < 5:
+                ax.set_xlabel(r"time $k$ [pixel]")
+                ax.set_ylabel(r"position $p$ [pixel]")
                 ax.legend(markerscale=5)
+                ax.grid(False)
                 fig.tight_layout()
                 fig.savefig(f"{output_folder_path}/output_{batch_idx}_{i}.pdf",
                             format='pdf', bbox_inches='tight', dpi=300)
@@ -181,7 +184,7 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
 
                 T = pred_positions.shape[0]
                 t = np.arange(T)
-                fig, axes = plt.subplots(len(labels), 1, figsize=(8, 4), sharex=True)
+                fig, axes = plt.subplots(len(labels), 1, figsize=(6, 3), sharex=True)
                 for ll in range(len(labels)):
                     for j in range(N_traces):
                         if forum: l = ll - 1
