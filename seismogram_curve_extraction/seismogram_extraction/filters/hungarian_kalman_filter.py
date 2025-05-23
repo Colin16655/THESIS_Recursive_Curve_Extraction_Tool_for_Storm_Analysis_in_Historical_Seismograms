@@ -82,8 +82,9 @@ class HungarianKalmanFilter:
                     continue
                 else:
                     # Predict
+                    cost_matrix = self.compute_cost_matrix(self.X[:, 0], centroids)
                     X_w, P_w = self.predict()  
-                    cost_matrix = self.compute_cost_matrix(X_w[:, 0], centroids)
+                    # cost_matrix = self.compute_cost_matrix(X_w[:, 0], centroids)
 
                     # Handle cases where M != N by padding the cost matrix
                     max_dim = max(avg_N_components, M)
@@ -98,7 +99,7 @@ class HungarianKalmanFilter:
                     for l, j in zip(row_ind, col_ind):
                         if l < avg_N_components and j < M:  # Ignore padded assignments
                             # if True:
-                            if padded_cost_matrix[l, j] < 50: # Test with and without this condition
+                            if padded_cost_matrix[l, j] < 25: # Test with and without this condition
                                 X_weighted[l], P_weighted[l] = self.update(X_weighted[l], P_weighted[l], centroids[j])
 
                     # ###

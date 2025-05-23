@@ -26,8 +26,13 @@ class ImageSequenceDataset(Dataset):
         self.image_files = sorted([os.path.join(image_folder_path, f) for f in os.listdir(image_folder_path) if f.endswith(('.png', '.jpg', '.jpeg'))])
         
         # Collect ground truth files
-        self.gt_files = sorted([os.path.join(gt_folder_path, f) for f in os.listdir(gt_folder_path) if f.endswith('.npy')])
-        
+        # self.gt_files = sorted([os.path.join(gt_folder_path, f) for f in os.listdir(gt_folder_path) if f.endswith('.npy')])
+        self.gt_files = sorted([
+            os.path.join(gt_folder_path, f)
+            for f in os.listdir(gt_folder_path)
+            if f.endswith('.npy') and not f.endswith('vel.npy') and not f.endswith('acc.npy')
+        ])
+
         self.transform = transform
     
     def __len__(self):
@@ -117,19 +122,13 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
     for batch_idx, (images, ground_truths) in enumerate(dataloader):
         if forum:
             meanlines = np.array(ground_truths.mean(axis=2).mean(axis=0))
+            # print("meanlines", meanlines)#ground_truths.shape, np.array(ground_truths.mean(axis=2)))
         N_traces = ground_truths.shape[1]
         batch_size = len(images)
 
         X_0 = np.zeros((batch_size, N_traces, processing_method.Q.shape[-1]))
         X_0[:, :, 0] = ground_truths[:, :, 0].numpy()  # position (p)
         # if sine aware HEKF
-        if phi_0 is None:
-            if omega_0 is not None:
-                X_0[:, :, 2] = omega_0
-                X_0[:, :, 3] = ground_truths[:, :, 0].numpy()
-        if phi_0 is not None:
-            X_0[:, :, 1] = omega_0
-            X_0[:, :, 2] = phi_0
         if forum:
             if a_0 == None:
                 X_0[:, :, 0] = ground_truths[:, :, 0].numpy() - meanlines
@@ -166,7 +165,10 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
                 all_curve_rmses.append(rmse)
 
                 if save and plot_counter < 5:
-                    ax.plot(t_steps, pred_positions[:, j], label=f'Trace {j+1} RMSE: {rmse:.2f}')
+                    if j == 0:
+                        ax.plot(t_steps, pred_positions[:, j], label=f'RMSE: {rmse:.2f}')
+                    else:
+                        ax.plot(t_steps, pred_positions[:, j], label=f'{rmse:.2f}')
                     ax.fill_between(t_steps,
                                     pred_positions[:, j] - std_positions[:, j],
                                     pred_positions[:, j] + std_positions[:, j],
@@ -175,9 +177,9 @@ def evaluate_filter(images_folder_path, gt_s_folder_path, output_folder_path,
             if save and plot_counter < 5:
                 ax.set_xlabel(r"time $k$ [pixel]")
                 ax.set_ylabel(r"position $p$ [pixel]")
-                ax.legend(markerscale=5)
+                ax.legend(markerscale=5, loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
                 ax.grid(False)
-                fig.tight_layout()
+                fig.tight_layout(rect=[0, 0.1, 1, 1])
                 fig.savefig(f"{output_folder_path}/output_{batch_idx}_{i}.pdf",
                             format='pdf', bbox_inches='tight', dpi=300)
                 plt.close(fig)

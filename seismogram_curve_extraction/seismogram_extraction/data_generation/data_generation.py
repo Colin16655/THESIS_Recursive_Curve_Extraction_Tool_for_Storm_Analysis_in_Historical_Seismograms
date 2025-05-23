@@ -402,7 +402,7 @@ if __name__ == "__main__":
     # Create generator with custom parameters
     generator = SeismogramGenerator(num_traces=N_traces, option=option) # USER
 
-    for i, overlap in enumerate(np.linspace(0.0, 0.5, 10)):  # Different overlap levels
+    for i, overlap in enumerate([0.44]):#enumerate(np.linspace(0.0, 0.5, 10)):  # Different overlap levels
         print(f"\n\nOverlap percentage: {overlap}")
         num = 0
         overlap_percentage = overlap
